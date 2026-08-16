@@ -1,0 +1,427 @@
+:root {
+  color-scheme: dark;
+  --bg: #1c1917;
+  --bg-2: #292524;
+  --bg-3: #35302c;
+  --line: #44403c;
+  --text: #f5f0e8;
+  --muted: #a8a29e;
+  --accent: #e7c9a5;
+  --accent-2: #c08457;
+  --danger: #e06c75;
+  font-family: "Segoe UI", "Hiragino Sans", Meiryo, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.brandbar {
+  height: 36px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line);
+  background: #161311;
+}
+
+.logo {
+  letter-spacing: 0.28em;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.tagline {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.left-pane,
+.right-wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tabbar {
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px 0;
+  background: #161311;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 8px 10px;
+  border-radius: 8px 8px 0 0;
+  cursor: pointer;
+}
+
+.tab.active {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.tab-empty {
+  cursor: default;
+  font-size: 12px;
+}
+
+.tab-close {
+  opacity: 0.55;
+  padding: 0 4px;
+}
+
+.tab-close:hover {
+  opacity: 1;
+  color: var(--danger);
+}
+
+.editor-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.editor-host {
+  position: absolute;
+  inset: 0;
+}
+
+.editor-host .monaco-editor,
+.editor-host .monaco-editor .overflow-guard {
+  width: 100%;
+  height: 100%;
+}
+
+.editor-host .monaco-editor .inputarea::selection,
+.editor-host .monaco-editor .inputarea::-moz-selection {
+  color: transparent;
+  background: transparent;
+}
+
+.yRemoteSelection {
+  background-color: rgb(231 201 165 / 35%);
+}
+
+.yRemoteSelectionHead {
+  position: absolute;
+  box-sizing: border-box;
+  height: 100%;
+  border-left: 2px solid #e7c9a5;
+  border-top: 2px solid #e7c9a5;
+  border-bottom: 2px solid #e7c9a5;
+}
+
+.yRemoteSelectionHead::after {
+  position: absolute;
+  content: '';
+  border: 3px solid #e7c9a5;
+  border-radius: 50%;
+  left: -4px;
+  top: -5px;
+}
+
+.empty {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  letter-spacing: 0.4em;
+}
+
+.splitter {
+  width: 6px;
+  cursor: col-resize;
+  background: var(--line);
+}
+
+.splitter:hover {
+  background: var(--accent-2);
+}
+
+.right-pane {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-2);
+  border-left: 1px solid var(--line);
+  padding: 16px;
+  gap: 12px;
+}
+
+.pane-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.pane-kicker {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.pane-card {
+  background: #211e1c;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.pane-card.grow {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.label {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 12px;
+}
+
+.status-line {
+  margin: 0 0 8px;
+}
+
+.name-btn,
+.pane-actions button,
+.modal-actions button,
+.invite button {
+  border: 1px solid var(--line);
+  background: var(--bg-3);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.name-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+button.primary {
+  background: var(--accent);
+  color: #1c1917;
+  border-color: transparent;
+  font-weight: 600;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.invite {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.invite code {
+  font-size: 20px;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+}
+
+.peer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.peer-list li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.pane-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hint {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 4px 0 0;
+}
+
+.statusbar {
+  height: 26px;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  background: #161311;
+  position: relative;
+}
+
+.status-btn {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+  cursor: pointer;
+}
+
+.status-btn:hover {
+  color: var(--text);
+}
+
+.encoding-picker {
+  position: relative;
+}
+
+.encoding-menu {
+  position: absolute;
+          bottom: 28px;
+  left: 0;
+  min-width: 220px;
+  max-height: 360px;
+  overflow: auto;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  z-index: 30;
+}
+
+.encoding-menu button {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.encoding-menu button:hover,
+.encoding-menu button.active {
+  background: var(--bg-3);
+}
+
+.encoding-hint {
+  font-size: 10px;
+  color: var(--muted);
+  padding: 8px 8px 4px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: #0008;
+  display: grid;
+  place-items: center;
+  z-index: 20;
+}
+
+.modal {
+  width: min(420px, calc(100vw - 32px));
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal h3 {
+  margin: 0;
+}
+
+.modal input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #1c1917;
+  color: var(--text);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.error {
+  color: var(--danger);
+  margin: 0;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}

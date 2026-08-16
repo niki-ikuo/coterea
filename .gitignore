@@ -1,0 +1,7 @@
+node_modules
+out
+dist
+.coterea-second
+*.log
+.DS_Store
+Thumbs.db

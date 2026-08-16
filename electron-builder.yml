@@ -1,0 +1,32 @@
+appId: app.coterea.desktop
+productName: Coterea
+directories:
+  buildResources: build
+  output: dist
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!docs/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,CHANGELOG.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!.coterea-second/*'
+asarUnpack:
+  - resources/**
+win:
+  executableName: Coterea
+  target:
+    - nsis
+nsis:
+  artifactName: Coterea-${version}-setup.${ext}
+  shortcutName: Coterea
+  uninstallDisplayName: Coterea
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerLanguages:
+    - ja_JP
+    - en_US
+npmRebuild: false
