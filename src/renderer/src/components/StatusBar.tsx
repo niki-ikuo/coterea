@@ -12,6 +12,11 @@ export function StatusBar(): React.JSX.Element {
   const tab = tabs.find((t) => t.id === activeTabId)
   const connected = collab.status === 'hosting' || collab.status === 'joined'
   const n = connected ? Math.max(collab.peers.length, 1) : 0
+  const collabLabel = connected
+    ? `接続 ${n}人`
+    : collab.peers.length > 1
+      ? '検出中'
+      : '一人'
 
   return (
     <footer className="statusbar">
@@ -20,7 +25,7 @@ export function StatusBar(): React.JSX.Element {
       </span>
       <span>{tab?.language ?? 'plaintext'}</span>
       {tab ? <EncodingPicker tabId={tab.id} encoding={tab.encoding} hasPath={Boolean(tab.path)} /> : <span>UTF-8</span>}
-      <span>共同編集: {connected ? `接続 ${n}人` : '未接続'}</span>
+      <span>共同編集: {collabLabel}</span>
       <span>AI: 未設定</span>
     </footer>
   )

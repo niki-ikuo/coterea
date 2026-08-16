@@ -10,16 +10,17 @@ export type TabInfo = {
   language: string
   isDirty: boolean
   encoding: EncodingId
+  fileIds: string[]
 }
 
 export type CollabState = {
   status: CollabStatus
-  roomId: string | null
-  sessionName: string | null
-  role: 'host' | 'guest' | null
+  role: 'solo' | 'host' | 'guest'
   localPeerId: string | null
   localColor: string
+  startedAt: number | null
   peers: PeerInfo[]
+  sharedKeys: string[]
   error: string | null
 }
 
@@ -44,13 +45,13 @@ type AppState = {
 }
 
 const idleCollab: CollabState = {
-  status: 'idle',
-  roomId: null,
-  sessionName: null,
-  role: null,
+  status: 'solo',
+  role: 'solo',
   localPeerId: null,
   localColor: '#E06C75',
+  startedAt: null,
   peers: [],
+  sharedKeys: [],
   error: null
 }
 

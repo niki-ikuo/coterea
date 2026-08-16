@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { EditorPane } from './components/EditorPane'
-import { JoinModal, RightPane, SettingsModal } from './components/RightPane'
+import { RightPane, SettingsModal } from './components/RightPane'
 import { StatusBar } from './components/StatusBar'
 import { TabBar } from './components/TabBar'
-import { attachCollabListeners, leaveCollab, startCollab } from './lib/collab'
+import { attachCollabListeners, enableCollab } from './lib/collab'
 import { closeTab, createUntitled, handleAppClose, openDialog, openPaths, saveActive } from './lib/actions'
 import { getTabDoc, setLocalUser } from './lib/docs'
 import { getActiveEditor } from './lib/editorHandle'
@@ -24,6 +24,7 @@ export function App(): React.JSX.Element {
     void (async () => {
       const s = await window.coterea.settings.get()
       useAppStore.getState().setDisplayName(s.displayName)
+      await enableCollab()
       if (useAppStore.getState().tabs.length === 0) createUntitled()
     })()
     const offMenu = window.coterea.app.onMenu((payload) => {
@@ -45,9 +46,6 @@ export function App(): React.JSX.Element {
         getActiveEditor()?.trigger('menu', 'editor.action.startFindReplaceAction', null)
       }
       if (action === 'toggle-right') setRightCollapsed(!useAppStore.getState().rightCollapsed)
-      if (action === 'collab-start') void startCollab()
-      if (action === 'collab-join') useAppStore.getState().setJoinOpen(true)
-      if (action === 'collab-leave') void leaveCollab()
       if (action === 'settings') useAppStore.getState().setSettingsOpen(true)
     })
     const offClose = window.coterea.app.onCloseRequest(() => {
@@ -113,7 +111,6 @@ export function App(): React.JSX.Element {
         )}
       </div>
       <StatusBar />
-      <JoinModal />
       <SettingsModal />
     </div>
   )

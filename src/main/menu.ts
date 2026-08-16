@@ -53,11 +53,7 @@ export function buildMenu(win: BrowserWindow, recent: string[], send: (action: s
     },
     {
       label: '共同編集',
-      submenu: [
-        { label: '共同編集を開始', click: () => send('collab-start') },
-        { label: '参加...', click: () => send('collab-join') },
-        { label: '離脱', click: () => send('collab-leave') }
-      ]
+      submenu: [{ label: '同一LAN・ファイル単位で自動接続', enabled: false }]
     },
     {
       label: '設定',

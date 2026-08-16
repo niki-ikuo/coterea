@@ -5,6 +5,7 @@ import { CollabHub } from './collab/hub'
 import { AppStore } from './store'
 import { buildMenu } from './menu'
 import { confirmUnsaved, openFiles, readTextFile, saveAs, warnLargeFile, writeTextFile } from './fs'
+import { resolveFileIds } from './fileIdentity'
 import type { ControlMessage } from './collab/frame'
 import type { DocMeta } from '../shared/types'
 import { parseEncoding } from './encoding'
@@ -16,7 +17,8 @@ let mainWindow: BrowserWindow | null = null
 let allowClose = false
 
 function sendMenu(action: string, extra?: string): void {
-  mainWindow?.webContents.send('menu', { action, extra })
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return
+  mainWindow.webContents.send('menu', { action, extra })
 }
 
 async function refreshMenu(): Promise<void> {
@@ -49,10 +51,15 @@ function createWindow(): void {
     mainWindow?.show()
   })
 
+  mainWindow.on('closed', () => {
+    mainWindow = null
+  })
+
   mainWindow.on('close', (event) => {
     if (allowClose) return
     event.preventDefault()
-    mainWindow?.webContents.send('app:close-request')
+    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return
+    mainWindow.webContents.send('app:close-request')
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -86,6 +93,9 @@ function registerIpc(): void {
     await refreshMenu()
     return result
   })
+  ipcMain.handle('fs:identity', async (_e, filePath: string) => {
+    return resolveFileIds(filePath)
+  })
   ipcMain.handle('fs:write', async (_e, filePath: string, content: string, encoding?: string) => {
     await writeTextFile(filePath, content, parseEncoding(encoding) ?? DEFAULT_ENCODING)
     await store.addRecent(filePath)
@@ -99,24 +109,11 @@ function registerIpc(): void {
     if (!mainWindow) return 'cancel'
     return confirmUnsaved(mainWindow, names)
   })
-  ipcMain.handle('collab:start', async (_e, payload: { displayName: string; sessionName: string }) => {
-    try {
-      const result = await hub.startHost(payload.displayName, payload.sessionName)
-      return { ok: true, ...result, localPeerId: hub.localPeerId }
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
-    }
+  ipcMain.handle('collab:enable', async (_e, displayName: string) => {
+    return hub.enable(displayName)
   })
-  ipcMain.handle('collab:join', async (_e, payload: { roomId: string; displayName: string }) => {
-    try {
-      const result = await hub.join(payload.roomId, payload.displayName)
-      return { ok: true, ...result, localPeerId: hub.localPeerId }
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
-    }
-  })
-  ipcMain.handle('collab:leave', async () => {
-    await hub.leave()
+  ipcMain.handle('collab:setDisplayName', (_e, displayName: string) => {
+    hub.setDisplayName(displayName)
   })
   ipcMain.handle('collab:setDocs', (_e, docs: DocMeta[]) => {
     hub.setSharedDocs(docs)

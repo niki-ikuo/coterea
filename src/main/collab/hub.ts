@@ -2,10 +2,10 @@ import { createServer, createConnection, type Server, type Socket } from 'net'
 import { randomUUID } from 'crypto'
 import { BrowserWindow } from 'electron'
 import { FrameReader, encodeFrame, type ControlMessage } from './frame'
-import { LanDiscovery } from './discovery'
+import { LanDiscovery, electHub, type Presence } from './discovery'
 import { PEER_COLORS, type DocMeta, type PeerInfo } from '../../shared/types'
 
-type Role = 'idle' | 'host' | 'guest'
+type Role = 'solo' | 'host' | 'guest'
 
 type TrackedSocket = {
   id: string
@@ -31,144 +31,60 @@ function normalizeHost(address?: string): string {
 
 export class CollabHub {
   readonly localPeerId = randomUUID()
-  private role: Role = 'idle'
-  private roomId = ''
-  private sessionName = ''
+  private role: Role = 'solo'
   private displayName = ''
+  private startedAt = Date.now()
   private localColor = PEER_COLORS[0]
   private server: Server | null = null
   private tcpPort = 0
   private hostSocket: Socket | null = null
   private hostReader: FrameReader | null = null
+  private hostId: string | null = null
   private clients = new Map<string, TrackedSocket>()
   private discovery = new LanDiscovery()
   private docs: DocMeta[] = []
   private win: BrowserWindow | null = null
   private leaving = false
+  private connecting = false
+  private tickTimer: NodeJS.Timeout | null = null
+  private enabled = false
 
   attachWindow(win: BrowserWindow): void {
     this.win = win
+    win.on('closed', () => {
+      if (this.win === win) this.win = null
+      this.leaving = true
+    })
   }
 
-  getLocalPeer(): PeerInfo {
-    return {
-      id: this.localPeerId,
-      displayName: this.displayName,
-      color: this.localColor,
-      docId: null,
-      docTitle: null
-    }
-  }
-
-  async startHost(displayName: string, sessionName: string): Promise<{ roomId: string; sessionName: string }> {
-    await this.leave()
+  async enable(displayName: string): Promise<{ localPeerId: string }> {
     this.displayName = displayName
-    this.sessionName = sessionName
-    this.role = 'host'
-    this.roomId = this.makeRoomId()
-    this.localColor = PEER_COLORS[0]
-    this.docs = []
-
+    if (this.enabled) {
+      this.publishPresence()
+      this.emitState()
+      return { localPeerId: this.localPeerId }
+    }
+    this.enabled = true
+    this.role = 'solo'
+    this.discovery.onChange = () => this.tick()
     await this.discovery.start()
-    this.server = createServer((socket) => this.onGuestSocket(socket))
-    await new Promise<void>((resolve, reject) => {
-      this.server!.once('error', reject)
-      this.server!.listen(0, '0.0.0.0', () => {
-        const addr = this.server!.address()
-        if (addr && typeof addr === 'object') this.tcpPort = addr.port
-        resolve()
-      })
-    })
-    this.discovery.advertise({
-      roomId: this.roomId,
-      sessionName: this.sessionName,
-      tcpPort: this.tcpPort,
-      hostId: this.localPeerId
-    })
-    this.emitPeers()
-    return { roomId: this.roomId, sessionName: this.sessionName }
+    this.publishPresence()
+    this.tickTimer = setInterval(() => this.tick(), 800)
+    this.emitState()
+    return { localPeerId: this.localPeerId }
   }
 
-  async join(roomId: string, displayName: string): Promise<{
-    roomId: string
-    sessionName: string
-    docs: DocMeta[]
-    color: string
-  }> {
-    await this.leave()
+  setDisplayName(displayName: string): void {
     this.displayName = displayName
-    this.role = 'guest'
-    this.roomId = roomId.toUpperCase().trim()
-    await this.discovery.start()
-    const ad = await this.discovery.findRoom(this.roomId)
-    if (!ad) {
-      this.role = 'idle'
-      throw new Error('同一LAN上にその招待コードのセッションが見つかりませんでした')
-    }
-    this.sessionName = ad.sessionName
-    this.localColor = colorFor(this.localPeerId, new Set([PEER_COLORS[0]]))
-
-    let welcomed = false
-    const docs = await new Promise<DocMeta[]>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('ホストからの応答がありません')), 4000)
-        const socket = createConnection(
-          { host: normalizeHost(ad.hostAddress), port: ad.tcpPort },
-          () => {
-        socket.write(
-          encodeFrame({
-            type: 'hello',
-            roomId: this.roomId,
-            peerId: this.localPeerId,
-            displayName: this.displayName,
-            color: this.localColor
-          })
-        )
-      })
-      this.hostSocket = socket
-      this.hostReader = new FrameReader()
-      socket.on('data', (chunk) => {
-        try {
-          const frames = this.hostReader!.push(chunk)
-          for (const frame of frames) {
-            if (frame.msg.type === 'welcome' && !welcomed) {
-              welcomed = true
-              clearTimeout(timer)
-              const welcomeDocs = (frame.msg.docs as DocMeta[]) ?? []
-              this.docs = welcomeDocs
-              if (typeof frame.msg.color === 'string') this.localColor = frame.msg.color
-              resolve(welcomeDocs)
-            } else {
-              this.sendToRenderer(frame.msg, frame.binary)
-            }
-          }
-        } catch (err) {
-          clearTimeout(timer)
-          reject(err)
-        }
-      })
-      socket.on('error', (err) => {
-        clearTimeout(timer)
-        reject(err)
-      })
-      socket.on('close', () => {
-        if (this.role === 'guest' && !this.leaving) {
-          this.emitEnded('ホストとの接続が切れました。フェーズ1ではホスト切断でセッションが終了します。')
-          void this.leave()
-        }
-      })
-    })
-
-    this.emitPeers()
-    return { roomId: this.roomId, sessionName: this.sessionName, docs, color: this.localColor }
+    this.publishPresence()
+    this.emitState()
   }
 
   setSharedDocs(docs: DocMeta[]): void {
     this.docs = docs
-    this.broadcast(
-      { type: 'docs', docs },
-      undefined,
-      null
-    )
+    if (this.role === 'host') {
+      this.broadcast({ type: 'docs', docs }, undefined, null)
+    }
   }
 
   sendFromRenderer(msg: ControlMessage, binary?: Buffer): void {
@@ -181,11 +97,173 @@ export class CollabHub {
   }
 
   async leave(): Promise<void> {
+    await this.tearDownTcp()
+    this.role = 'solo'
+    this.publishPresence()
+    this.emitState()
+  }
+
+  dispose(): void {
     this.leaving = true
-    this.discovery.stopAdvertising()
-    for (const client of this.clients.values()) {
-      client.socket.destroy()
+    this.enabled = false
+    this.win = null
+    if (this.tickTimer) {
+      clearInterval(this.tickTimer)
+      this.tickTimer = null
     }
+    void this.tearDownTcp()
+    this.discovery.close()
+  }
+
+  private tick(): void {
+    if (!this.enabled || this.leaving || this.connecting) return
+    const others = this.discovery.others()
+
+    if (this.role === 'host') {
+      if (this.clients.size === 0 && others.length === 0) {
+        void this.demoteToSolo()
+      }
+      return
+    }
+
+    if (this.role === 'guest') return
+
+    const liveHost = others.find((p) => p.role === 'host' && p.tcpPort)
+    if (liveHost) {
+      void this.connectAsGuest(liveHost)
+      return
+    }
+
+    const members = [
+      { peerId: this.localPeerId, startedAt: this.startedAt },
+      ...others.map((p) => ({ peerId: p.peerId, startedAt: p.startedAt }))
+    ]
+    const elected = electHub(members)
+    if (elected?.peerId === this.localPeerId) {
+      void this.becomeHost()
+    }
+  }
+
+  private async becomeHost(): Promise<void> {
+    if (this.role === 'host' || this.connecting) return
+    this.connecting = true
+    try {
+      await this.startTcpServer()
+      this.role = 'host'
+      this.hostId = this.localPeerId
+      this.publishPresence()
+      this.emitState()
+      this.sendToRenderer({ type: 'became-host' }, Buffer.alloc(0))
+    } finally {
+      this.connecting = false
+    }
+  }
+
+  private async startTcpServer(): Promise<void> {
+    if (this.server) return
+    this.server = createServer((socket) => this.onGuestSocket(socket))
+    await new Promise<void>((resolve, reject) => {
+      this.server!.once('error', reject)
+      this.server!.listen(0, '0.0.0.0', () => {
+        const addr = this.server!.address()
+        if (addr && typeof addr === 'object') this.tcpPort = addr.port
+        resolve()
+      })
+    })
+  }
+
+  private async connectAsGuest(host: Presence): Promise<void> {
+    if (this.connecting || this.role === 'guest') return
+    this.connecting = true
+    this.role = 'guest'
+    this.hostId = host.peerId
+    this.publishPresence()
+    this.emitState()
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('ホストからの応答がありません')), 4000)
+        const socket = createConnection(
+          { host: normalizeHost(host.hostAddress), port: host.tcpPort as number },
+          () => {
+            socket.write(
+              encodeFrame({
+                type: 'hello',
+                peerId: this.localPeerId,
+                displayName: this.displayName,
+                color: this.localColor,
+                startedAt: this.startedAt
+              })
+            )
+          }
+        )
+        this.hostSocket = socket
+        this.hostReader = new FrameReader()
+        let welcomed = false
+        socket.on('data', (chunk) => {
+          try {
+            const frames = this.hostReader!.push(chunk)
+            for (const frame of frames) {
+              if (frame.msg.type === 'welcome' && !welcomed) {
+                welcomed = true
+                clearTimeout(timer)
+                this.docs = (frame.msg.docs as DocMeta[]) ?? this.docs
+                if (typeof frame.msg.color === 'string') this.localColor = frame.msg.color
+                this.sendToRenderer({ type: 'became-guest', docs: this.docs }, Buffer.alloc(0))
+                this.emitState()
+                resolve()
+              } else {
+                this.sendToRenderer(frame.msg, frame.binary)
+              }
+            }
+          } catch (err) {
+            clearTimeout(timer)
+            reject(err)
+          }
+        })
+        socket.on('error', (err) => {
+          clearTimeout(timer)
+          reject(err)
+        })
+        socket.on('close', () => {
+          if (this.role === 'guest' && !this.leaving) {
+            this.onHostLost()
+          }
+        })
+      })
+    } catch {
+      this.hostSocket?.destroy()
+      this.hostSocket = null
+      this.hostReader = null
+      this.role = 'solo'
+      this.hostId = null
+      this.publishPresence()
+      this.emitState()
+    } finally {
+      this.connecting = false
+    }
+  }
+
+  private onHostLost(): void {
+    this.hostSocket = null
+    this.hostReader = null
+    this.hostId = null
+    this.role = 'solo'
+    this.publishPresence()
+    this.sendToRenderer({ type: 'host-lost' }, Buffer.alloc(0))
+    this.emitState()
+  }
+
+  private async demoteToSolo(): Promise<void> {
+    await this.tearDownTcp()
+    this.role = 'solo'
+    this.hostId = null
+    this.publishPresence()
+    this.sendToRenderer({ type: 'became-solo' }, Buffer.alloc(0))
+    this.emitState()
+  }
+
+  private async tearDownTcp(): Promise<void> {
+    for (const client of this.clients.values()) client.socket.destroy()
     this.clients.clear()
     this.hostSocket?.destroy()
     this.hostSocket = null
@@ -195,15 +273,7 @@ export class CollabHub {
       this.server.close(() => resolve())
     })
     this.server = null
-    this.role = 'idle'
-    this.roomId = ''
-    this.docs = []
-    this.leaving = false
-  }
-
-  dispose(): void {
-    void this.leave()
-    this.discovery.close()
+    this.tcpPort = 0
   }
 
   private onGuestSocket(socket: Socket): void {
@@ -215,11 +285,6 @@ export class CollabHub {
         for (const frame of frames) {
           if (!tracked) {
             if (frame.msg.type !== 'hello') {
-              socket.destroy()
-              return
-            }
-            if (frame.msg.roomId !== this.roomId) {
-              socket.write(encodeFrame({ type: 'error', error: '招待コードが一致しません' }))
               socket.destroy()
               return
             }
@@ -241,13 +306,12 @@ export class CollabHub {
             socket.write(
               encodeFrame({
                 type: 'welcome',
-                sessionName: this.sessionName,
                 color,
                 docs: this.docs,
                 hostId: this.localPeerId
               })
             )
-            this.emitPeers()
+            this.emitState()
             this.sendToRenderer(
               {
                 type: 'peer-joined',
@@ -270,7 +334,8 @@ export class CollabHub {
     socket.on('close', () => {
       if (!tracked) return
       this.clients.delete(tracked.id)
-      this.emitPeers()
+      if (this.leaving) return
+      this.emitState()
       this.sendToRenderer({ type: 'peer-left', peerId: tracked.id }, Buffer.alloc(0))
     })
     socket.on('error', () => socket.destroy())
@@ -284,7 +349,38 @@ export class CollabHub {
     }
   }
 
-  private emitPeers(): void {
+  private publishPresence(): void {
+    this.discovery.setPresence({
+      peerId: this.localPeerId,
+      displayName: this.displayName,
+      startedAt: this.startedAt,
+      role: this.role,
+      tcpPort: this.role === 'host' ? this.tcpPort : null,
+      hostId: this.hostId
+    })
+  }
+
+  private rendererAlive(): boolean {
+    return Boolean(this.win && !this.win.isDestroyed() && !this.win.webContents.isDestroyed())
+  }
+
+  private emitState(): void {
+    if (this.leaving || !this.rendererAlive()) return
+    const peers = this.role === 'guest' ? undefined : this.collectPeers()
+    this.win!.webContents.send('collab:state', {
+      status: this.role === 'host' ? 'hosting' : this.role === 'guest' ? 'joined' : 'solo',
+      role: this.role,
+      localPeerId: this.localPeerId,
+      localColor: this.localColor,
+      startedAt: this.startedAt,
+      peers
+    })
+    if (this.role === 'host') {
+      this.broadcast({ type: 'peer-list', peers: this.collectPeers() }, undefined, null)
+    }
+  }
+
+  private collectPeers(): PeerInfo[] {
     const peers: PeerInfo[] = [
       {
         id: this.localPeerId,
@@ -304,29 +400,26 @@ export class CollabHub {
           docTitle: null
         })
       }
-      this.broadcast({ type: 'peer-list', peers }, undefined, null)
+    } else if (this.role === 'solo') {
+      for (const p of this.discovery.others()) {
+        peers.push({
+          id: p.peerId,
+          displayName: p.displayName,
+          color: colorFor(p.peerId, new Set()),
+          docId: null,
+          docTitle: null
+        })
+      }
     }
-    this.win?.webContents.send('collab:peer-update', { peers })
+    return peers
   }
 
   private sendToRenderer(msg: ControlMessage, binary: Buffer): void {
+    if (this.leaving || !this.rendererAlive()) return
     const copy = Buffer.from(binary)
-    this.win?.webContents.send('collab:frame', {
+    this.win!.webContents.send('collab:frame', {
       msg,
       binary: copy.buffer.slice(copy.byteOffset, copy.byteOffset + copy.byteLength)
     })
-  }
-
-  private emitEnded(reason: string): void {
-    this.win?.webContents.send('collab:ended', { reason })
-  }
-
-  private makeRoomId(): string {
-    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-    let id = ''
-    for (let i = 0; i < 6; i++) {
-      id += alphabet[Math.floor(Math.random() * alphabet.length)]
-    }
-    return id
   }
 }

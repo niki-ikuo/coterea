@@ -14,6 +14,7 @@ files:
   - '!.coterea-second/*'
 asarUnpack:
   - resources/**
+  - node_modules/koffi/**
 win:
   executableName: Coterea
   target:

@@ -3,6 +3,7 @@ import { readFile, writeFile, stat } from 'fs/promises'
 import { FILE_LINE_WARN, FILE_SIZE_WARN_BYTES, type ReadFileResult, type SaveResult } from '../shared/types'
 import { DEFAULT_ENCODING, type EncodingId } from '../shared/encoding'
 import { decodeBuffer, detectEncoding, encodeText } from './encoding'
+import { resolveFileIds } from './fileIdentity'
 
 const FILTERS = [
   { name: 'テキスト', extensions: ['txt', 'md', 'markdown'] },
@@ -33,7 +34,8 @@ export async function readTextFile(filePath: string, encoding?: EncodingId): Pro
     lines,
     tooLarge: info.size > FILE_SIZE_WARN_BYTES || lines > FILE_LINE_WARN,
     encoding: used,
-    detectedEncoding: detected
+    detectedEncoding: detected,
+    fileIds: await resolveFileIds(filePath)
   }
 }
 

@@ -28,7 +28,6 @@ export interface CollabSessionInfo {
   sessionName: string
   role: 'host' | 'guest'
   peers: PeerInfo[]
-  hostDisconnectedEndsSession: true
 }
 
 export interface DocMeta {
@@ -55,6 +54,7 @@ export interface ReadFileResult {
   tooLarge: boolean
   encoding: import('./encoding').EncodingId
   detectedEncoding: import('./encoding').EncodingId
+  fileIds: string[]
 }
 
 export interface SaveResult {
@@ -62,7 +62,7 @@ export interface SaveResult {
   path: string | null
 }
 
-export type CollabStatus = 'idle' | 'hosting' | 'connecting' | 'joined' | 'error'
+export type CollabStatus = 'solo' | 'hosting' | 'connecting' | 'joined' | 'error'
 
 export type MainToRenderer =
   | { channel: 'collab:peer-update'; payload: { peers: PeerInfo[] } }

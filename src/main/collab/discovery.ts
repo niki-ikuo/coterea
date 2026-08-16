@@ -1,26 +1,28 @@
 import { createSocket, type Socket as UdpSocket } from 'dgram'
 import { COLLAB_MAGIC, COLLAB_UDP_PORT } from '../../shared/types'
 
-export type Advertisement = {
+export type PresenceRole = 'solo' | 'host' | 'guest'
+
+export type Presence = {
   magic: string
-  type: 'advertise' | 'probe-reply'
-  roomId: string
-  sessionName: string
-  tcpPort: number
-  hostId: string
+  type: 'presence'
+  peerId: string
+  displayName: string
+  startedAt: number
+  role: PresenceRole
+  tcpPort: number | null
+  hostId: string | null
   hostAddress?: string
 }
 
-export type Probe = {
-  magic: string
-  type: 'probe'
-  roomId: string
-}
+const PEER_TTL_MS = 4000
 
 export class LanDiscovery {
   private socket: UdpSocket | null = null
   private advertiseTimer: NodeJS.Timeout | null = null
-  private ad: Advertisement | null = null
+  private presence: Omit<Presence, 'magic' | 'type' | 'hostAddress'> | null = null
+  private peers = new Map<string, Presence & { lastSeen: number }>()
+  onChange: (() => void) | null = null
 
   async start(): Promise<void> {
     if (this.socket) return
@@ -36,24 +38,28 @@ export class LanDiscovery {
     })
     socket.on('message', (msg, rinfo) => {
       try {
-        const data = JSON.parse(msg.toString('utf8')) as Probe | Advertisement
-        if (data.magic !== COLLAB_MAGIC) return
-        if (data.type === 'probe' && this.ad && data.roomId === this.ad.roomId) {
-          const reply = Buffer.from(JSON.stringify({ ...this.ad, type: 'probe-reply' }), 'utf8')
-          socket.send(reply, rinfo.port, rinfo.address)
-        }
+        const data = JSON.parse(msg.toString('utf8')) as Presence
+        if (data.magic !== COLLAB_MAGIC || data.type !== 'presence') return
+        if (!this.presence || data.peerId === this.presence.peerId) return
+        this.peers.set(data.peerId, {
+          ...data,
+          hostAddress: rinfo.address,
+          lastSeen: Date.now()
+        })
+        this.onChange?.()
       } catch {
         /* ignore */
       }
     })
   }
 
-  advertise(ad: Omit<Advertisement, 'magic' | 'type'>): void {
-    this.ad = { ...ad, magic: COLLAB_MAGIC, type: 'advertise' }
+  setPresence(next: Omit<Presence, 'magic' | 'type' | 'hostAddress'>): void {
+    this.presence = next
     this.stopAdvertiseTimer()
     const send = (): void => {
-      if (!this.socket || !this.ad) return
-      const buf = Buffer.from(JSON.stringify(this.ad), 'utf8')
+      if (!this.socket || !this.presence) return
+      const payload: Presence = { ...this.presence, magic: COLLAB_MAGIC, type: 'presence' }
+      const buf = Buffer.from(JSON.stringify(payload), 'utf8')
       this.socket.send(buf, COLLAB_UDP_PORT, '255.255.255.255')
       this.socket.send(buf, COLLAB_UDP_PORT, '127.0.0.1')
     }
@@ -61,47 +67,18 @@ export class LanDiscovery {
     this.advertiseTimer = setInterval(send, 1500)
   }
 
-  stopAdvertising(): void {
-    this.ad = null
-    this.stopAdvertiseTimer()
-  }
-
-  async findRoom(roomId: string, timeoutMs = 3500): Promise<Advertisement | null> {
-    await this.start()
-    const socket = this.socket
-    if (!socket) return null
-
-    return new Promise((resolve) => {
-      const onMessage = (msg: Buffer, rinfo: { address: string }): void => {
-        try {
-          const data = JSON.parse(msg.toString('utf8')) as Advertisement
-          if (data.magic !== COLLAB_MAGIC) return
-          if ((data.type === 'advertise' || data.type === 'probe-reply') && data.roomId === roomId) {
-            cleanup()
-            resolve({ ...data, hostAddress: rinfo.address })
-          }
-        } catch {
-          /* ignore */
-        }
-      }
-      const cleanup = (): void => {
-        socket.off('message', onMessage)
-        clearTimeout(timer)
-      }
-      socket.on('message', onMessage)
-      const probe: Probe = { magic: COLLAB_MAGIC, type: 'probe', roomId }
-      const buf = Buffer.from(JSON.stringify(probe), 'utf8')
-      socket.send(buf, COLLAB_UDP_PORT, '255.255.255.255')
-      socket.send(buf, COLLAB_UDP_PORT, '127.0.0.1')
-      const timer = setTimeout(() => {
-        cleanup()
-        resolve(null)
-      }, timeoutMs)
-    })
+  others(): Array<Presence & { lastSeen: number }> {
+    const now = Date.now()
+    for (const [id, peer] of this.peers) {
+      if (now - peer.lastSeen > PEER_TTL_MS) this.peers.delete(id)
+    }
+    return [...this.peers.values()]
   }
 
   close(): void {
-    this.stopAdvertising()
+    this.stopAdvertiseTimer()
+    this.presence = null
+    this.peers.clear()
     this.socket?.close()
     this.socket = null
   }
@@ -112,4 +89,14 @@ export class LanDiscovery {
       this.advertiseTimer = null
     }
   }
+}
+
+export function electHub(
+  members: Array<{ peerId: string; startedAt: number }>
+): { peerId: string; startedAt: number } | null {
+  if (members.length < 2) return null
+  return [...members].sort((a, b) => {
+    if (a.startedAt !== b.startedAt) return a.startedAt - b.startedAt
+    return a.peerId < b.peerId ? -1 : 1
+  })[0]
 }

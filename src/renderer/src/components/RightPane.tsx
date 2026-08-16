@@ -1,16 +1,11 @@
 import { useState } from 'react'
-import { joinCollab, leaveCollab, startCollab } from '../lib/collab'
 import { useAppStore } from '../store'
 
 export function RightPane(): React.JSX.Element {
   const displayName = useAppStore((s) => s.displayName)
   const collab = useAppStore((s) => s.collab)
-  const setJoinOpen = useAppStore((s) => s.setJoinOpen)
   const setSettingsOpen = useAppStore((s) => s.setSettingsOpen)
-  const [busy, setBusy] = useState(false)
-
-  const connected = collab.status === 'hosting' || collab.status === 'joined'
-  const count = Math.max(collab.peers.length, connected ? 1 : 0)
+  const count = Math.max(collab.peers.length, 1)
 
   return (
     <aside className="right-pane">
@@ -32,25 +27,26 @@ export function RightPane(): React.JSX.Element {
       <section className="pane-card">
         <div className="label">状態</div>
         <p className="status-line">
-          {collab.status === 'idle' && '未接続（共同編集は開始するまでオフ）'}
-          {collab.status === 'connecting' && '参加中…'}
-          {collab.status === 'hosting' && `ホスト中 · ${count}人`}
+          {collab.status === 'solo' &&
+            (collab.peers.length > 1 ? 'LAN上の相手を検出。接続を準備しています' : '一人で編集中（共同編集サーバーは起動していません）')}
+          {collab.status === 'connecting' && '接続中…'}
+          {collab.status === 'hosting' && `ハブ（先にいた人）· ${count}人`}
           {collab.status === 'joined' && `参加中 · ${count}人`}
           {collab.status === 'error' && (collab.error ?? 'エラー')}
         </p>
         {collab.status !== 'error' && collab.error && <p className="error">{collab.error}</p>}
-        {collab.sessionName && <p className="muted">{collab.sessionName}</p>}
-        {collab.roomId && (
-          <div className="invite">
-            <div className="label">招待コード</div>
-            <code>{collab.roomId}</code>
-            <button
-              type="button"
-              onClick={() => void navigator.clipboard.writeText(collab.roomId ?? '')}
-            >
-              コピー
-            </button>
-          </div>
+      </section>
+
+      <section className="pane-card">
+        <div className="label">共有中のファイル</div>
+        {collab.sharedKeys.length === 0 ? (
+          <p className="muted">同じ実体のファイルを開くと、そのファイルだけ同期します。パス表記が違っても同一ファイルなら共有します。</p>
+        ) : (
+          <ul className="peer-list">
+            {collab.sharedKeys.map((key) => (
+              <li key={key}>{key}</li>
+            ))}
+          </ul>
         )}
       </section>
 
@@ -74,78 +70,11 @@ export function RightPane(): React.JSX.Element {
       </section>
 
       <div className="pane-actions">
-        {!connected && (
-          <>
-            <button
-              className="primary"
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setBusy(true)
-                void startCollab().finally(() => setBusy(false))
-              }}
-            >
-              共同編集を開始
-            </button>
-            <button type="button" onClick={() => setJoinOpen(true)}>
-              招待コードで参加
-            </button>
-          </>
-        )}
-        {connected && (
-          <button type="button" onClick={() => void leaveCollab()}>
-            離脱
-          </button>
-        )}
         <p className="hint">
-          同一LAN向けです。Cotereaのサーバーは使いません。フェーズ1ではホストが切れるとセッションが終了します。
+          同一LANのCotereaは自動でつながります。ハブは先にいた人です。切れたら残りの最古参が引き継ぎます。同期は同じファイル名のタブだけです（無題は共有しません）。
         </p>
       </div>
     </aside>
-  )
-}
-
-export function JoinModal(): React.JSX.Element | null {
-  const open = useAppStore((s) => s.joinOpen)
-  const setJoinOpen = useAppStore((s) => s.setJoinOpen)
-  const [code, setCode] = useState('')
-  const [busy, setBusy] = useState(false)
-  const error = useAppStore((s) => s.collab.error)
-  if (!open) return null
-  return (
-    <div className="modal-backdrop" onClick={() => setJoinOpen(false)}>
-      <form
-        className="modal"
-        onClick={(e) => e.stopPropagation()}
-        onSubmit={(e) => {
-          e.preventDefault()
-          setBusy(true)
-          void joinCollab(code).finally(() => {
-            setBusy(false)
-            if (useAppStore.getState().collab.status === 'joined') setJoinOpen(false)
-          })
-        }}
-      >
-        <h3>セッションに参加</h3>
-        <p className="muted">同一LANの招待コードを入力してください。</p>
-        <input
-          autoFocus
-          value={code}
-          onChange={(e) => setCode(e.target.value.toUpperCase())}
-          placeholder="例: 7K3MPL"
-          maxLength={8}
-        />
-        {error && <p className="error">{error}</p>}
-        <div className="modal-actions">
-          <button type="button" onClick={() => setJoinOpen(false)}>
-            キャンセル
-          </button>
-          <button className="primary" type="submit" disabled={busy || code.trim().length < 4}>
-            参加
-          </button>
-        </div>
-      </form>
-    </div>
   )
 }
 
@@ -166,6 +95,7 @@ export function SettingsModal(): React.JSX.Element | null {
           if (!trimmed) return
           void window.coterea.settings.set({ displayName: trimmed }).then((s) => {
             useAppStore.getState().setDisplayName(s.displayName)
+            void window.coterea.collab.setDisplayName(s.displayName)
             setSettingsOpen(false)
           })
         }}

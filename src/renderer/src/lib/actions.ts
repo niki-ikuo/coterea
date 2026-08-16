@@ -1,8 +1,9 @@
 import { languageFromPath, titleFromPath } from './monacoEnv'
 import { createTabDoc, disposeTabDoc, getText, languageOf, replaceText, setLanguage } from './docs'
-import { announceNewDoc, isCollabActive, leaveCollab } from './collab'
+import { announceNewDoc, isCollabActive, publishManifest } from './collab'
 import { useAppStore, type TabInfo } from '../store'
 import { DEFAULT_ENCODING, type EncodingId } from '../../../shared/encoding'
+import { idsOverlap } from '../../../shared/fileSession'
 
 function newId(): string {
   return crypto.randomUUID()
@@ -18,7 +19,8 @@ export function createUntitled(): TabInfo {
     title: '無題',
     language: 'plaintext',
     isDirty: false,
-    encoding: DEFAULT_ENCODING
+    encoding: DEFAULT_ENCODING,
+    fileIds: []
   }
   createTabDoc(id, '', 'plaintext', { name: displayName, color: collab.localColor })
   useAppStore.getState().setTabs((tabs) => [...tabs, tab])
@@ -28,15 +30,21 @@ export function createUntitled(): TabInfo {
 }
 
 export async function openPaths(paths: string[]): Promise<void> {
-  const { displayName, collab, tabs } = useAppStore.getState()
   for (const filePath of paths) {
-    const existing = tabs.find((t) => t.path === filePath)
+    const read = await window.coterea.fs.read(filePath)
+    if (!read) continue
+    const current = useAppStore.getState()
+    const existing = current.tabs.find(
+      (t) =>
+        t.path === filePath ||
+        t.path === read.path ||
+        idsOverlap(t.fileIds, read.fileIds)
+    )
     if (existing) {
       useAppStore.getState().setActiveTabId(existing.id)
       continue
     }
-    const read = await window.coterea.fs.read(filePath)
-    if (!read) continue
+    const { displayName, collab } = useAppStore.getState()
     const id = newId()
     const language = languageOf(filePath)
     createTabDoc(id, read.content, language, { name: displayName, color: collab.localColor })
@@ -47,7 +55,8 @@ export async function openPaths(paths: string[]): Promise<void> {
       title: titleFromPath(filePath),
       language,
       isDirty: false,
-      encoding: read.encoding
+      encoding: read.encoding,
+      fileIds: read.fileIds
     }
     useAppStore.getState().setTabs((prev) => [...prev, tab])
     useAppStore.getState().setActiveTabId(id)
@@ -70,15 +79,17 @@ export async function saveTab(tabId: string, saveAs = false): Promise<boolean> {
     path = result.path
   }
   await window.coterea.fs.write(path, getText(tabId), tab.encoding)
+  const fileIds = await window.coterea.fs.identity(path)
   const language = languageFromPath(path)
   setLanguage(tabId, language)
   useAppStore.getState().setTabs((tabs) =>
     tabs.map((t) =>
       t.id === tabId
-        ? { ...t, path, hostPath: t.hostPath ?? path, title: titleFromPath(path), language, isDirty: false }
+        ? { ...t, path, hostPath: t.hostPath ?? path, title: titleFromPath(path), language, isDirty: false, fileIds }
         : t
     )
   )
+  publishManifest()
   return true
 }
 
@@ -100,6 +111,7 @@ export async function closeTab(tabId: string): Promise<void> {
   if (activeTabId === tabId) {
     useAppStore.getState().setActiveTabId(next.at(-1)?.id ?? null)
   }
+  publishManifest()
 }
 
 export async function handleAppClose(): Promise<void> {
@@ -114,7 +126,6 @@ export async function handleAppClose(): Promise<void> {
       }
     }
   }
-  if (isCollabActive()) await leaveCollab()
   await window.coterea.app.confirmClose()
 }
 

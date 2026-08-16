@@ -1,4 +1,5 @@
 import { AUTOSAVE_MS, type PeerInfo } from '../../../shared/types'
+import { earlierPeer, fileIdsOf, idsOverlap, offerKeys, type FileOffer } from '../../../shared/fileSession'
 import {
   applyAwarenessBytes,
   applyYjs,
@@ -6,14 +7,13 @@ import {
   disposeTabDoc,
   encodeDoc,
   getTabDoc,
-  getText,
-  languageOf
+  getText
 } from './docs'
-import { titleFromPath } from './monacoEnv'
-import { resetCollab, useAppStore, type TabInfo } from '../store'
-import { DEFAULT_ENCODING } from '../../../shared/encoding'
+import { useAppStore, type TabInfo } from '../store'
 
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const remoteManifests = new Map<string, { peerId: string; startedAt: number; files: FileOffer[] }>()
+const sentCanonical = new Map<string, string>()
 
 function toUint8(data: ArrayBuffer | Uint8Array): Uint8Array {
   return data instanceof Uint8Array ? data : new Uint8Array(data)
@@ -24,20 +24,25 @@ export function isCollabActive(): boolean {
   return status === 'hosting' || status === 'joined'
 }
 
-export function tabToMeta(tab: TabInfo) {
-  return {
-    id: tab.id,
-    title: tab.title,
-    hostPath: tab.path ?? tab.hostPath,
-    language: tab.language
-  }
+function localOffers(): FileOffer[] {
+  return useAppStore
+    .getState()
+    .tabs.flatMap((tab) => {
+      const keys = fileIdsOf(tab)
+      if (keys.length === 0) return []
+      return [{ docId: tab.id, keys, title: tab.title, language: tab.language }]
+    })
 }
 
-export function publishDocs(): void {
+export function publishManifest(): void {
   if (!isCollabActive()) return
-  const { tabs, collab } = useAppStore.getState()
-  if (collab.role !== 'host') return
-  void window.coterea.collab.setDocs(tabs.map(tabToMeta))
+  const { collab } = useAppStore.getState()
+  window.coterea.collab.send({
+    type: 'files-manifest',
+    startedAt: collab.startedAt,
+    files: localOffers()
+  })
+  reconcileFileSessions()
 }
 
 export function scheduleAutosave(tabId: string): void {
@@ -64,7 +69,10 @@ export function markDirty(tabId: string): void {
 
 export function sendFullState(docId: string): void {
   const bytes = encodeDoc(docId)
-  window.coterea.collab.send({ type: 'yjs-sync', docId }, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer)
+  window.coterea.collab.send(
+    { type: 'yjs-sync', docId },
+    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+  )
 }
 
 export function sendPresence(): void {
@@ -78,24 +86,56 @@ export function sendPresence(): void {
   })
 }
 
-function addRemoteTab(meta: { id: string; title: string; hostPath: string | null; language?: string }): void {
-  const { tabs, displayName, collab } = useAppStore.getState()
-  if (tabs.some((t) => t.id === meta.id)) return
-  const language = meta.language || languageOf(meta.hostPath)
-  createTabDoc(meta.id, '', language, { name: displayName, color: collab.localColor })
-  const tab: TabInfo = {
-    id: meta.id,
-    path: null,
-    hostPath: meta.hostPath,
-    title: meta.title || titleFromPath(meta.hostPath),
-    language,
-    isDirty: false,
-    encoding: DEFAULT_ENCODING
+function adoptCanonical(tab: TabInfo, canonicalId: string): void {
+  if (tab.id === canonicalId) return
+  const { displayName, collab, activeTabId } = useAppStore.getState()
+  const oldId = tab.id
+  if (!getTabDoc(canonicalId)) {
+    createTabDoc(canonicalId, '', tab.language, { name: displayName, color: collab.localColor })
   }
-  useAppStore.getState().setTabs((prev) => [...prev, tab])
-  if (!useAppStore.getState().activeTabId) {
-    useAppStore.getState().setActiveTabId(tab.id)
+  useAppStore.getState().setTabs((tabs) =>
+    tabs.map((t) => (t.id === oldId ? { ...t, id: canonicalId } : t))
+  )
+  if (activeTabId === oldId) useAppStore.getState().setActiveTabId(canonicalId)
+  queueMicrotask(() => disposeTabDoc(oldId))
+}
+
+function reconcileFileSessions(): void {
+  if (!isCollabActive()) {
+    useAppStore.getState().patchCollab({ sharedKeys: [] })
+    return
   }
+  const { collab, tabs } = useAppStore.getState()
+  const me = { peerId: collab.localPeerId ?? '', startedAt: collab.startedAt ?? Date.now() }
+  const shared: string[] = []
+
+  for (const tab of tabs) {
+    const keys = fileIdsOf(tab)
+    if (keys.length === 0) continue
+    const remotes = [...remoteManifests.values()].flatMap((m) =>
+      m.files
+        .filter((f) => idsOverlap(offerKeys(f), keys))
+        .map((f) => ({ ...f, peerId: m.peerId, startedAt: m.startedAt }))
+    )
+    if (remotes.length === 0) continue
+    shared.push(tab.title)
+    const originator = remotes.reduce(
+      (best, cur) => (earlierPeer(cur, best) ? cur : best),
+      { peerId: me.peerId, startedAt: me.startedAt, docId: tab.id, keys, title: tab.title, language: tab.language }
+    )
+    const sessionToken = keys.slice().sort().join('|')
+    if (originator.peerId === me.peerId) {
+      if (sentCanonical.get(sessionToken) !== tab.id) {
+        sentCanonical.set(sessionToken, tab.id)
+        window.coterea.collab.send({ type: 'file-canonical', keys, docId: tab.id })
+        sendFullState(tab.id)
+      }
+    } else if (originator.docId && originator.docId !== tab.id) {
+      adoptCanonical(tab, originator.docId)
+    }
+  }
+
+  useAppStore.getState().patchCollab({ sharedKeys: [...new Set(shared)] })
 }
 
 export function handleCollabFrame(msg: Record<string, unknown>, binary: ArrayBuffer): void {
@@ -108,17 +148,38 @@ export function handleCollabFrame(msg: Record<string, unknown>, binary: ArrayBuf
     applyYjs(docId, toUint8(binary))
   } else if (type === 'awareness' && docId) {
     applyAwarenessBytes(docId, toUint8(binary))
-  } else if (type === 'peer-joined') {
-    const { tabs, collab } = useAppStore.getState()
-    if (collab.role === 'host') {
-      for (const tab of tabs) sendFullState(tab.id)
+  } else if (type === 'peer-joined' || type === 'became-host' || type === 'became-guest') {
+    sentCanonical.clear()
+    publishManifest()
+    sendPresence()
+  } else if (type === 'host-lost' || type === 'became-solo') {
+    remoteManifests.clear()
+    sentCanonical.clear()
+    useAppStore.getState().patchCollab({ sharedKeys: [] })
+  } else if (type === 'peer-left') {
+    const left = typeof msg.peerId === 'string' ? msg.peerId : null
+    if (left) remoteManifests.delete(left)
+    reconcileFileSessions()
+  } else if (type === 'files-manifest' && Array.isArray(msg.files)) {
+    const peerId = typeof msg.peerId === 'string' ? msg.peerId : ''
+    const startedAt = typeof msg.startedAt === 'number' ? msg.startedAt : Date.now()
+    if (peerId) {
+      remoteManifests.set(peerId, {
+        peerId,
+        startedAt,
+        files: msg.files as FileOffer[]
+      })
+      reconcileFileSessions()
     }
-  } else if (type === 'doc-open' && msg.doc && typeof msg.doc === 'object') {
-    addRemoteTab(msg.doc as { id: string; title: string; hostPath: string | null; language?: string })
-  } else if (type === 'docs' && Array.isArray(msg.docs)) {
-    for (const doc of msg.docs) {
-      addRemoteTab(doc as { id: string; title: string; hostPath: string | null; language?: string })
-    }
+  } else if (type === 'file-canonical' && docId) {
+    const incoming =
+      Array.isArray(msg.keys) && msg.keys.every((k) => typeof k === 'string')
+        ? (msg.keys as string[])
+        : typeof msg.key === 'string'
+          ? [msg.key]
+          : []
+    const tab = useAppStore.getState().tabs.find((t) => idsOverlap(fileIdsOf(t), incoming))
+    if (tab && tab.id !== docId) adoptCanonical(tab, docId)
   } else if (type === 'peer-list' && Array.isArray(msg.peers)) {
     useAppStore.getState().patchCollab({ peers: msg.peers as PeerInfo[] })
   } else if (type === 'presence') {
@@ -141,6 +202,17 @@ export function attachCollabListeners(): () => void {
   const offFrame = window.coterea.collab.onFrame(({ msg, binary }) => {
     handleCollabFrame(msg, binary)
   })
+  const offState = window.coterea.collab.onState((payload) => {
+    useAppStore.getState().patchCollab({
+      status: payload.status,
+      role: payload.role,
+      localPeerId: payload.localPeerId,
+      localColor: payload.localColor,
+      error: null,
+      ...(typeof payload.startedAt === 'number' ? { startedAt: payload.startedAt } : {}),
+      ...(payload.peers ? { peers: payload.peers } : {})
+    })
+  })
   const offPeers = window.coterea.collab.onPeers(({ peers }) => {
     const local = useAppStore.getState().collab.localPeerId
     const mine = peers.find((p) => p.id === local)
@@ -149,80 +221,21 @@ export function attachCollabListeners(): () => void {
       localColor: mine?.color ?? useAppStore.getState().collab.localColor
     })
   })
-  const offEnded = window.coterea.collab.onEnded(({ reason }) => {
-    useAppStore.getState().patchCollab({ status: 'error', error: reason })
-    resetCollab()
-    useAppStore.getState().patchCollab({ error: reason, status: 'idle' })
-  })
   return () => {
     offFrame()
+    offState()
     offPeers()
-    offEnded()
   }
 }
 
-export async function startCollab(): Promise<void> {
-  const { displayName, tabs } = useAppStore.getState()
-  const sessionName = `${displayName}のセッション`
-  const result = await window.coterea.collab.start(displayName, sessionName)
-  if (!result.ok) {
-    useAppStore.getState().patchCollab({ status: 'error', error: result.error })
-    return
-  }
-  useAppStore.getState().patchCollab({
-    status: 'hosting',
-    roomId: result.roomId,
-    sessionName: result.sessionName,
-    role: 'host',
-    localPeerId: result.localPeerId,
-    error: null
-  })
-  await window.coterea.collab.setDocs(tabs.map(tabToMeta))
-  sendPresence()
-}
-
-export async function joinCollab(roomId: string): Promise<void> {
+export async function enableCollab(): Promise<void> {
   const { displayName } = useAppStore.getState()
-  useAppStore.getState().patchCollab({ status: 'connecting', error: null })
-  const result = await window.coterea.collab.join(roomId, displayName)
-  if (!result.ok) {
-    useAppStore.getState().patchCollab({ status: 'error', error: result.error })
-    return
-  }
-  useAppStore.getState().patchCollab({
-    status: 'joined',
-    roomId: result.roomId,
-    sessionName: result.sessionName,
-    role: 'guest',
-    localPeerId: result.localPeerId,
-    localColor: result.color,
-    error: null
-  })
-  const leftovers = useAppStore.getState().tabs.filter((tab) => {
-    const empty = tab.path === null && tab.title === '無題' && getText(tab.id) === ''
-    if (empty) disposeTabDoc(tab.id)
-    return !empty
-  })
-  useAppStore.getState().setTabs(leftovers)
-  for (const doc of result.docs) {
-    addRemoteTab(doc)
-  }
-  sendPresence()
+  const result = await window.coterea.collab.enable(displayName)
+  useAppStore.getState().patchCollab({ localPeerId: result.localPeerId, status: 'solo', role: 'solo' })
 }
 
-export async function leaveCollab(): Promise<void> {
-  await window.coterea.collab.leave()
-  resetCollab()
-}
-
-export function announceNewDoc(tab: TabInfo): void {
-  if (!isCollabActive()) return
-  const { collab } = useAppStore.getState()
-  if (collab.role === 'host') {
-    window.coterea.collab.send({ type: 'doc-open', doc: tabToMeta(tab) })
-    sendFullState(tab.id)
-    publishDocs()
-  }
+export function announceNewDoc(_tab: TabInfo): void {
+  publishManifest()
 }
 
 export { getTabDoc }

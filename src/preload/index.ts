@@ -11,6 +11,7 @@ const api = {
     open: (): Promise<string[]> => ipcRenderer.invoke('fs:open'),
     read: (filePath: string, encoding?: EncodingId): Promise<ReadFileResult | null> =>
       ipcRenderer.invoke('fs:read', filePath, encoding),
+    identity: (filePath: string): Promise<string[]> => ipcRenderer.invoke('fs:identity', filePath),
     write: (filePath: string, content: string, encoding?: EncodingId): Promise<void> =>
       ipcRenderer.invoke('fs:write', filePath, content, encoding),
     saveAs: (suggestedName?: string): Promise<SaveResult> => ipcRenderer.invoke('fs:saveAs', suggestedName),
@@ -21,12 +22,15 @@ const api = {
     get: (): Promise<string[]> => ipcRenderer.invoke('recent:get')
   },
   collab: {
-    start: (displayName: string, sessionName: string) =>
-      ipcRenderer.invoke('collab:start', { displayName, sessionName }),
-    join: (roomId: string, displayName: string) => ipcRenderer.invoke('collab:join', { roomId, displayName }),
-    leave: () => ipcRenderer.invoke('collab:leave'),
+    enable: (displayName: string) => ipcRenderer.invoke('collab:enable', displayName),
+    setDisplayName: (displayName: string) => ipcRenderer.invoke('collab:setDisplayName', displayName),
     setDocs: (docs: DocMeta[]) => ipcRenderer.invoke('collab:setDocs', docs),
     send: (msg: Record<string, unknown>, binary?: ArrayBuffer) => ipcRenderer.send('collab:send', msg, binary),
+    onState: (cb: (payload: unknown) => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, payload: unknown): void => cb(payload)
+      ipcRenderer.on('collab:state', listener)
+      return () => ipcRenderer.removeListener('collab:state', listener)
+    },
     onPeers: (cb: (peers: unknown) => void) => {
       const listener = (_e: Electron.IpcRendererEvent, payload: unknown): void => cb(payload)
       ipcRenderer.on('collab:peer-update', listener)
@@ -39,11 +43,6 @@ const api = {
       ): void => cb(payload)
       ipcRenderer.on('collab:frame', listener)
       return () => ipcRenderer.removeListener('collab:frame', listener)
-    },
-    onEnded: (cb: (payload: { reason: string }) => void) => {
-      const listener = (_e: Electron.IpcRendererEvent, payload: { reason: string }): void => cb(payload)
-      ipcRenderer.on('collab:ended', listener)
-      return () => ipcRenderer.removeListener('collab:ended', listener)
     }
   },
   app: {
