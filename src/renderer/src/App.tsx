@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { EditorPane } from './components/EditorPane'
-import { RightPane, SettingsModal } from './components/RightPane'
+import { RightPane } from './components/RightPane'
 import { StatusBar } from './components/StatusBar'
-import { PresenceBadge } from './components/PresenceBadge'
 import { TabBar } from './components/TabBar'
+import { TitleBar } from './components/TitleBar'
 import { attachCollabListeners, enableCollab } from './lib/collab'
 import { closeTab, createUntitled, cycleMdView, handleAppClose, openDialog, openPaths, openPathsFromShell, saveActive, setMdView, toggleCollabPane } from './lib/actions'
 import { getTabDoc, setLocalUser } from './lib/docs'
@@ -25,6 +25,13 @@ export function App(): React.JSX.Element {
     const offCollab = attachCollabListeners()
     const offOpenFiles = window.coterea.app.onOpenFiles((paths) => {
       void openPathsFromShell(paths)
+    })
+    const offSettings = window.coterea.settings.onChange((next) => {
+      useAppStore.getState().setDisplayName(next.displayName)
+      const applied = parseTheme(next.theme)
+      useAppStore.getState().setTheme(applied)
+      applyUiTheme(applied)
+      void window.coterea.collab.setDisplayName(next.displayName)
     })
     void (async () => {
       const s = await window.coterea.settings.get()
@@ -57,7 +64,6 @@ export function App(): React.JSX.Element {
         getActiveEditor()?.trigger('menu', 'editor.action.startFindReplaceAction', null)
       }
       if (action === 'toggle-right') void toggleCollabPane()
-      if (action === 'settings') useAppStore.getState().setSettingsOpen(true)
       if (action === 'theme' && extra) {
         const theme = parseTheme(extra)
         void window.coterea.settings.set({ theme }).then((next) => {
@@ -83,6 +89,7 @@ export function App(): React.JSX.Element {
       offMenu()
       offClose()
       offOpenFiles()
+      offSettings()
     }
   }, [])
 
@@ -109,13 +116,7 @@ export function App(): React.JSX.Element {
 
   return (
     <div className="app">
-      <div className="brandbar">
-        <div className="brandbar-left">
-          <span className="logo">COTEREA</span>
-          <span className="tagline">人と AI が、ともに書く。</span>
-        </div>
-        <PresenceBadge />
-      </div>
+      <TitleBar />
       <div className="workspace">
         <div className="left-pane" style={{ width: collabPaneVisible ? `${100 - rightWidth}%` : '100%' }}>
           <TabBar />
@@ -123,7 +124,35 @@ export function App(): React.JSX.Element {
             {activeTabId && tabs.some((t) => t.id === activeTabId) ? (
               <EditorPane tabId={activeTabId} />
             ) : (
-              <div className="empty">Coterea</div>
+              <div className="empty">
+                <svg className="empty-mark" viewBox="0 0 512 512" aria-hidden>
+                  <g className="empty-mark-paper">
+                    <path d="M159.92 22h157.46l104.08 104.08v294.53c0 38.86-30.53 69.39-69.39 69.39H159.92c-38.86 0-69.39-30.53-69.39-69.39V91.39c0-38.86 30.53-69.39 69.39-69.39z" />
+                    <path d="M317.38 22v104.08h104.08" />
+                  </g>
+                  <rect className="empty-mark-bar" x="169.27" y="205.38" width="173.47" height="37.13" rx="21.35" />
+                  <rect className="empty-mark-bar" x="169.27" y="271.75" width="173.47" height="37.13" rx="21.35" />
+                  <rect className="empty-mark-bar" x="169.27" y="338.13" width="121.43" height="37.13" rx="21.35" />
+                </svg>
+                <div className="empty-actions">
+                  <button type="button" className="empty-action" onClick={() => createUntitled()}>
+                    <span>新規</span>
+                    <span className="empty-keys">
+                      <kbd>Ctrl</kbd>
+                      <span>+</span>
+                      <kbd>N</kbd>
+                    </span>
+                  </button>
+                  <button type="button" className="empty-action" onClick={() => void openDialog()}>
+                    <span>開く…</span>
+                    <span className="empty-keys">
+                      <kbd>Ctrl</kbd>
+                      <span>+</span>
+                      <kbd>O</kbd>
+                    </span>
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -142,7 +171,6 @@ export function App(): React.JSX.Element {
         )}
       </div>
       <StatusBar />
-      <SettingsModal />
     </div>
   )
 }

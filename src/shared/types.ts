@@ -43,6 +43,19 @@ export interface AppSettings {
   collabPaneVisible: boolean
 }
 
+export interface AboutInfo {
+  name: string
+  version: string
+  flavor: string
+  builtAt: number
+  copyright: string
+  electron: string
+  chrome: string
+  node: string
+  v8: string
+  os: string
+}
+
 export interface OpenDialogResult {
   canceled: boolean
   paths: string[]

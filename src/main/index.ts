@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, Menu, shell } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { CollabHub } from './collab/hub'
@@ -10,9 +10,12 @@ import type { ControlMessage } from './collab/frame'
 import type { DocMeta } from '../shared/types'
 import { parseEncoding } from './encoding'
 import { DEFAULT_ENCODING } from '../shared/encoding'
-import { parseTheme, THEME_WINDOW_BG } from '../shared/theme'
+import { parseTheme, THEME_TITLEBAR_OVERLAY, THEME_WINDOW_BG, TITLEBAR_HEIGHT, type ThemeId } from '../shared/theme'
 import { filesFromArgv } from './openFromShell'
 import { attachZoomShortcuts } from './zoom'
+import { getAboutInfo } from './about'
+import { showSettingsWindow } from './settingsWindow'
+import appIcon from '../../resources/icon.png?asset'
 
 const store = new AppStore()
 const hub = new CollabHub()
@@ -56,18 +59,42 @@ async function refreshMenu(): Promise<void> {
     parseTheme(store.getSettings().theme),
     store.getSettings().collabPaneVisible === true
   )
+  if (!mainWindow.isDestroyed()) {
+    mainWindow.setMenuBarVisibility(false)
+  }
+}
+
+function titleBarOverlayOptions(theme: ThemeId): Electron.TitleBarOverlay {
+  const overlay = THEME_TITLEBAR_OVERLAY[theme]
+  return {
+    color: overlay.color,
+    symbolColor: overlay.symbolColor,
+    height: TITLEBAR_HEIGHT
+  }
+}
+
+function applyWindowChrome(win: BrowserWindow, theme: ThemeId): void {
+  win.setBackgroundColor(THEME_WINDOW_BG[theme])
+  if (process.platform === 'win32') {
+    win.setTitleBarOverlay(titleBarOverlayOptions(theme))
+  }
 }
 
 function createWindow(): void {
+  const theme = parseTheme(store.getSettings().theme)
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 900,
     minHeight: 560,
     show: false,
-    autoHideMenuBar: false,
+    frame: true,
+    titleBarStyle: 'hidden',
+    ...(process.platform === 'win32' ? { titleBarOverlay: titleBarOverlayOptions(theme) } : {}),
+    autoHideMenuBar: true,
     title: 'Coterea',
-    backgroundColor: THEME_WINDOW_BG[parseTheme(store.getSettings().theme)],
+    icon: appIcon,
+    backgroundColor: THEME_WINDOW_BG[theme],
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -75,6 +102,7 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
+  mainWindow.setMenuBarVisibility(false)
 
   hub.attachWindow(mainWindow)
   attachZoomShortcuts(mainWindow)
@@ -108,8 +136,11 @@ function registerIpc(): void {
   })
   ipcMain.handle('settings:set', async (_e, patch: Partial<import('../shared/types').AppSettings>) => {
     const next = await store.setSettings(patch)
-    if (!mainWindow?.isDestroyed()) {
-      mainWindow?.setBackgroundColor(THEME_WINDOW_BG[parseTheme(next.theme)])
+    const theme = parseTheme(next.theme)
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed()) continue
+      applyWindowChrome(win, theme)
+      if (!win.webContents.isDestroyed()) win.webContents.send('settings:changed', next)
     }
     await refreshMenu()
     return next
@@ -164,11 +195,36 @@ function registerIpc(): void {
     if (!/^https?:\/\//i.test(url)) return
     await shell.openExternal(url)
   })
+  ipcMain.handle('app:showSettings', (event) => {
+    const from = BrowserWindow.fromWebContents(event.sender)
+    const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : from
+    if (!parent) return
+    showSettingsWindow(parent, parseTheme(store.getSettings().theme))
+  })
+  ipcMain.handle('app:getAboutInfo', () => getAboutInfo())
+  ipcMain.handle('app:writeClipboard', (_e, text: unknown) => {
+    if (typeof text !== 'string') return
+    clipboard.writeText(text)
+  })
   ipcMain.handle('app:consumeLaunchFiles', () => {
     rendererReady = true
     const files = launchFiles
     launchFiles = []
     return files
+  })
+  ipcMain.on('menu:popup', (event, label: unknown, x: unknown, y: unknown) => {
+    if (typeof label !== 'string' || typeof x !== 'number' || typeof y !== 'number') return
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    const item = Menu.getApplicationMenu()?.items.find((entry) => entry.label === label)
+    const submenu = item?.submenu
+    if (!submenu) return
+    const zoom = event.sender.getZoomFactor()
+    submenu.popup({
+      window: win,
+      x: Math.round(x * zoom),
+      y: Math.round(y * zoom)
+    })
   })
   ipcMain.handle('recent:get', async () => {
     await store.load()

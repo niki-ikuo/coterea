@@ -10,7 +10,7 @@ function initials(name: string): string {
   return chars[0]!.toUpperCase()
 }
 
-export function PresenceBadge(): React.JSX.Element {
+export function PresenceBadge(): React.JSX.Element | null {
   useAppStore((s) => s.activeTabId)
   useAppStore((s) => s.displayName)
   useAppStore((s) => s.collab.localColor)
@@ -29,6 +29,8 @@ export function PresenceBadge(): React.JSX.Element {
     window.addEventListener('mousedown', onDown)
     return () => window.removeEventListener('mousedown', onDown)
   }, [])
+
+  if (editors.length <= 1) return null
 
   return (
     <div className="presence" ref={wrapRef}>

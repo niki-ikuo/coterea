@@ -17,6 +17,7 @@ asarUnpack:
   - node_modules/koffi/**
 win:
   executableName: Coterea
+  icon: icon.ico
   target:
     - nsis
 nsis:

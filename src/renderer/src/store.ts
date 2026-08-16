@@ -44,7 +44,6 @@ type AppState = {
   line: number
   column: number
   joinOpen: boolean
-  settingsOpen: boolean
   collab: CollabState
   setDisplayName: (name: string) => void
   setTheme: (theme: ThemeId) => void
@@ -53,7 +52,6 @@ type AppState = {
   setCursor: (line: number, column: number) => void
   setCollabPaneVisible: (v: boolean) => void
   setJoinOpen: (v: boolean) => void
-  setSettingsOpen: (v: boolean) => void
   patchCollab: (patch: Partial<CollabState>) => void
 }
 
@@ -82,7 +80,6 @@ export const useAppStore = create<AppState>((set) => ({
   line: 1,
   column: 1,
   joinOpen: false,
-  settingsOpen: false,
   collab: idleCollab,
   setDisplayName: (displayName) => set({ displayName }),
   setTheme: (theme) => set({ theme }),
@@ -92,7 +89,6 @@ export const useAppStore = create<AppState>((set) => ({
   setCursor: (line, column) => set({ line, column }),
   setCollabPaneVisible: (collabPaneVisible) => set({ collabPaneVisible }),
   setJoinOpen: (joinOpen) => set({ joinOpen }),
-  setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
   patchCollab: (patch) => set((s) => ({ collab: { ...s.collab, ...patch } }))
 }))
 

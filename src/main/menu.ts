@@ -1,16 +1,8 @@
-import { app, dialog, Menu, type BrowserWindow } from 'electron'
+import { Menu, type BrowserWindow } from 'electron'
 import { THEMES, type ThemeId } from '../shared/theme'
 import { zoomIn, zoomOut, zoomReset } from './zoom'
-
-function showAbout(win: BrowserWindow): void {
-  void dialog.showMessageBox(win, {
-    type: 'info',
-    title: 'Coterea について',
-    message: 'Coterea',
-    detail: `バージョン ${app.getVersion()}\n人と AI が、ともに書く。`,
-    buttons: ['OK']
-  })
-}
+import { showAboutWindow } from './about'
+import { showSettingsWindow } from './settingsWindow'
 
 export function buildMenu(
   win: BrowserWindow,
@@ -40,7 +32,7 @@ export function buildMenu(
         { type: 'separator' },
         { label: 'タブを閉じる', accelerator: 'CmdOrCtrl+W', click: () => send('close-tab') },
         { type: 'separator' },
-        { label: '設定...', click: () => send('settings') },
+        { label: '設定...', click: () => showSettingsWindow(win, theme) },
         { type: 'separator' },
         { label: '終了', accelerator: 'Alt+F4', click: () => win.close() }
       ]
@@ -100,7 +92,7 @@ export function buildMenu(
     },
     {
       label: 'ヘルプ',
-      submenu: [{ label: 'バージョン情報', click: () => showAbout(win) }]
+      submenu: [{ label: 'バージョン情報', click: () => showAboutWindow(win, theme) }]
     }
   ]
 

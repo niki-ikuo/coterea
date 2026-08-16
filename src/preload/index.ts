@@ -1,11 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppSettings, DocMeta, ReadFileResult, SaveResult } from '../shared/types'
+import type { AboutInfo, AppSettings, DocMeta, ReadFileResult, SaveResult } from '../shared/types'
 import type { EncodingId } from '../shared/encoding'
 
 const api = {
   settings: {
     get: (): Promise<AppSettings> => ipcRenderer.invoke('settings:get'),
-    set: (patch: Partial<AppSettings>): Promise<AppSettings> => ipcRenderer.invoke('settings:set', patch)
+    set: (patch: Partial<AppSettings>): Promise<AppSettings> => ipcRenderer.invoke('settings:set', patch),
+    onChange: (cb: (settings: AppSettings) => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, settings: AppSettings): void => cb(settings)
+      ipcRenderer.on('settings:changed', listener)
+      return () => ipcRenderer.removeListener('settings:changed', listener)
+    }
   },
   fs: {
     open: (): Promise<string[]> => ipcRenderer.invoke('fs:open'),
@@ -48,6 +53,9 @@ const api = {
   app: {
     confirmClose: () => ipcRenderer.invoke('app:confirmClose'),
     openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
+    showSettings: (): Promise<void> => ipcRenderer.invoke('app:showSettings'),
+    getAboutInfo: (): Promise<AboutInfo> => ipcRenderer.invoke('app:getAboutInfo'),
+    writeClipboard: (text: string): Promise<void> => ipcRenderer.invoke('app:writeClipboard', text),
     onMenu: (cb: (payload: { action: string; extra?: string }) => void) => {
       const listener = (_e: Electron.IpcRendererEvent, payload: { action: string; extra?: string }): void =>
         cb(payload)
@@ -64,6 +72,9 @@ const api = {
       const listener = (_e: Electron.IpcRendererEvent, paths: string[]): void => cb(paths)
       ipcRenderer.on('app:open-files', listener)
       return () => ipcRenderer.removeListener('app:open-files', listener)
+    },
+    popupMenu: (label: string, x: number, y: number): void => {
+      ipcRenderer.send('menu:popup', label, x, y)
     }
   }
 }

@@ -47,17 +47,17 @@ function glyphFor(language: string): { mark: string; color: string } {
   return GLYPH[language] ?? { mark: '·', color: '#8a8a8a' }
 }
 
-export function TabBar(): React.JSX.Element {
+export function TabBar(): React.JSX.Element | null {
   const tabs = useAppStore((s) => s.tabs)
   const activeTabId = useAppStore((s) => s.activeTabId)
   const setActiveTabId = useAppStore((s) => s.setActiveTabId)
   const active = tabs.find((t) => t.id === activeTabId)
+  if (tabs.length === 0) return null
 
   return (
     <>
       <div className="tabbar">
         <div className="tabbar-scroll" role="tablist">
-          {tabs.length === 0 && <div className="tab tab-empty">ファイルを開くか、新規作成してください</div>}
           {tabs.map((tab) => {
             const glyph = glyphFor(tab.language)
             const selected = tab.id === activeTabId

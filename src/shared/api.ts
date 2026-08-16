@@ -1,10 +1,11 @@
-import type { AppSettings, DocMeta, PeerInfo, ReadFileResult, SaveResult } from './types'
+import type { AboutInfo, AppSettings, DocMeta, PeerInfo, ReadFileResult, SaveResult } from './types'
 import type { EncodingId } from './encoding'
 
 export interface CotereaApi {
   settings: {
     get: () => Promise<AppSettings>
     set: (patch: Partial<AppSettings>) => Promise<AppSettings>
+    onChange: (cb: (settings: AppSettings) => void) => () => void
   }
   fs: {
     open: () => Promise<string[]>
@@ -42,9 +43,13 @@ export interface CotereaApi {
   app: {
     confirmClose: () => Promise<void>
     openExternal: (url: string) => Promise<void>
+    showSettings: () => Promise<void>
+    getAboutInfo: () => Promise<AboutInfo>
+    writeClipboard: (text: string) => Promise<void>
     onMenu: (cb: (payload: { action: string; extra?: string }) => void) => () => void
     onCloseRequest: (cb: () => void) => () => void
     consumeLaunchFiles: () => Promise<string[]>
     onOpenFiles: (cb: (paths: string[]) => void) => () => void
+    popupMenu: (label: string, x: number, y: number) => void
   }
 }

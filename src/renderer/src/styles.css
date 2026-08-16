@@ -132,34 +132,68 @@ input {
   flex-direction: column;
 }
 
-.brandbar {
-  height: 36px;
+.titlebar {
+  -webkit-app-region: drag;
+  app-region: drag;
+  height: env(titlebar-area-height, 36px);
+  width: env(titlebar-area-width, calc(100% - 138px));
+  margin-left: env(titlebar-area-x, 0px);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 10px 0 14px;
+  padding: 0 8px 0 12px;
   border-bottom: 1px solid var(--line);
   background: var(--chrome);
+  flex: 0 0 auto;
+  user-select: none;
 }
 
-.brandbar-left {
+.titlebar-left {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
+  flex: 1;
 }
 
-.logo {
-  letter-spacing: 0.28em;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--accent);
+.titlebar-right {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
 }
 
-.tagline {
+.app-menu {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex: 0 0 auto;
+}
+
+.app-menu-item {
+  border: 0;
+  background: transparent;
+  color: var(--text);
   font-size: 12px;
-  color: var(--muted);
+  line-height: 22px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: default;
+}
+
+.app-menu-item:hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.logo-mark {
+  width: 18px;
+  height: 18px;
+  display: block;
+  flex: 0 0 auto;
 }
 
 .workspace {
@@ -549,10 +583,84 @@ html[data-theme='hc-dark'] .tab-close {
 
 .empty {
   height: 100%;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
   color: var(--muted);
-  letter-spacing: 0.4em;
+  user-select: none;
+}
+
+.empty-mark {
+  width: 96px;
+  height: 96px;
+  pointer-events: none;
+}
+
+.empty-mark-paper {
+  fill: var(--bg);
+  stroke: var(--muted);
+  stroke-width: 28;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  stroke-opacity: 0.55;
+}
+
+.empty-mark-bar {
+  fill: var(--muted);
+  fill-opacity: 0.45;
+}
+
+.empty-actions {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  column-gap: 40px;
+  row-gap: 2px;
+}
+
+.empty-action {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+  margin: 0;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.empty-action:hover {
+  background: var(--bg-3);
+}
+
+.empty-keys {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+}
+
+.empty-keys kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg-2);
+  box-shadow: 0 1px 0 var(--line);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
 }
 
 .splitter {
@@ -643,7 +751,7 @@ html[data-theme='hc-dark'] .tab-close {
 
 .name-btn,
 .pane-actions button,
-.modal-actions button,
+.dialog-actions button,
 .invite button {
   border: 1px solid var(--line);
   background: var(--bg-3);
@@ -786,46 +894,6 @@ button:disabled {
   padding: 8px 8px 4px;
 }
 
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgb(0 0 0 / 45%);
-  display: grid;
-  place-items: center;
-  z-index: 20;
-}
-
-.modal {
-  width: min(420px, calc(100vw - 32px));
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.modal h3 {
-  margin: 0;
-}
-
-.modal input,
-.modal select {
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: var(--input-bg);
-  color: var(--text);
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
 .error {
   color: var(--danger);
   margin: 0;
@@ -943,4 +1011,124 @@ label {
   height: 8px;
   border-radius: 50%;
   flex: 0 0 8px;
+}
+
+.dialog-app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
+}
+
+.dialog-drag {
+  height: env(titlebar-area-height, 36px);
+  flex: 0 0 auto;
+}
+
+.dialog-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 32px 0;
+}
+
+.dialog-body-center {
+  align-items: center;
+  text-align: center;
+}
+
+.dialog-heading {
+  margin: 8px 0 16px;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.dialog-form {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  gap: 12px;
+}
+
+.dialog-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.dialog-form input,
+.dialog-form select {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+.about-icon {
+  width: 128px;
+  height: 128px;
+  margin-bottom: 20px;
+}
+
+.about-name {
+  margin: 0 0 10px;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.about-meta {
+  margin: 0 0 4px;
+  font-size: 14px;
+  color: var(--muted);
+  min-height: 1.4em;
+}
+
+.dialog-actions {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: auto;
+  padding: 28px 0 24px;
+  width: 100%;
+}
+
+.dialog-actions button {
+  border: 1px solid transparent;
+  background: var(--bg-3);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 18px;
+  min-width: 168px;
+  cursor: pointer;
+}
+
+.dialog-actions button.primary {
+  background: var(--accent);
+  color: var(--primary-fg);
+  font-weight: 600;
+}
+
+.about-status {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.about-copyright {
+  margin: 0;
+  padding: 24px 16px 20px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
 }

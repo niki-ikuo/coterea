@@ -1,13 +1,9 @@
-import { useEffect, useState } from 'react'
 import { useAppStore } from '../store'
 import { setCollabPaneVisible } from '../lib/actions'
-import { applyUiTheme } from '../lib/monacoEnv'
-import { THEMES, parseTheme, type ThemeId } from '../../../shared/theme'
 
 export function RightPane(): React.JSX.Element {
   const displayName = useAppStore((s) => s.displayName)
   const collab = useAppStore((s) => s.collab)
-  const setSettingsOpen = useAppStore((s) => s.setSettingsOpen)
   const connected = collab.status === 'hosting' || collab.status === 'joined'
   const participants = connected
     ? collab.peers
@@ -28,7 +24,7 @@ export function RightPane(): React.JSX.Element {
 
       <section className="pane-card">
         <div className="label">自分の表示名</div>
-        <button className="name-btn" type="button" onClick={() => setSettingsOpen(true)}>
+        <button className="name-btn" type="button" onClick={() => void window.coterea.app.showSettings()}>
           <span className="swatch" style={{ background: collab.localColor }} />
           {displayName || '未設定'}
         </button>
@@ -93,65 +89,5 @@ export function RightPane(): React.JSX.Element {
         </p>
       </div>
     </aside>
-  )
-}
-
-export function SettingsModal(): React.JSX.Element | null {
-  const open = useAppStore((s) => s.settingsOpen)
-  const setSettingsOpen = useAppStore((s) => s.setSettingsOpen)
-  const displayName = useAppStore((s) => s.displayName)
-  const theme = useAppStore((s) => s.theme)
-  const [name, setName] = useState(displayName)
-  const [themeDraft, setThemeDraft] = useState<ThemeId>(theme)
-  useEffect(() => {
-    if (!open) return
-    setName(displayName)
-    setThemeDraft(theme)
-  }, [open, displayName, theme])
-  if (!open) return null
-  return (
-    <div className="modal-backdrop" onClick={() => setSettingsOpen(false)}>
-      <form
-        className="modal"
-        onClick={(e) => e.stopPropagation()}
-        onSubmit={(e) => {
-          e.preventDefault()
-          const trimmed = name.trim()
-          if (!trimmed) return
-          void window.coterea.settings.set({ displayName: trimmed, theme: themeDraft }).then((s) => {
-            useAppStore.getState().setDisplayName(s.displayName)
-            const applied = parseTheme(s.theme)
-            useAppStore.getState().setTheme(applied)
-            applyUiTheme(applied)
-            void window.coterea.collab.setDisplayName(s.displayName)
-            setSettingsOpen(false)
-          })
-        }}
-      >
-        <h3>設定</h3>
-        <label>
-          表示名
-          <input value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label>
-          テーマ
-          <select value={themeDraft} onChange={(e) => setThemeDraft(parseTheme(e.target.value))}>
-            {THEMES.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="modal-actions">
-          <button type="button" onClick={() => setSettingsOpen(false)}>
-            キャンセル
-          </button>
-          <button className="primary" type="submit">
-            保存
-          </button>
-        </div>
-      </form>
-    </div>
   )
 }
