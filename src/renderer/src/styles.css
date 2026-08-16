@@ -384,12 +384,6 @@ html[data-theme='hc-dark'] .tab-close {
   border-bottom: var(--hairline) solid var(--line);
 }
 
-.md-toolbar-label {
-  font-weight: 650;
-  color: var(--text);
-  letter-spacing: 0.04em;
-}
-
 .md-seg {
   display: flex;
   border: var(--hairline) solid var(--line);

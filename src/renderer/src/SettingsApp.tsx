@@ -53,11 +53,7 @@ export function SettingsApp(): React.JSX.Element {
           <select
             value={themeDraft}
             disabled={!ready}
-            onChange={(e) => {
-              const next = parseTheme(e.target.value)
-              setThemeDraft(next)
-              document.documentElement.dataset.theme = next
-            }}
+            onChange={(e) => setThemeDraft(parseTheme(e.target.value))}
           >
             {THEMES.map((item) => (
               <option key={item.id} value={item.id}>

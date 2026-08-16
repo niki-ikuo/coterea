@@ -5,7 +5,7 @@ import { useAppStore, type MdView, type TabInfo } from '../store'
 const MD_MODES: { id: MdView; label: string }[] = [
   { id: 'edit', label: '編集' },
   { id: 'split', label: '分割' },
-  { id: 'preview', label: 'プレビュー' }
+  { id: 'preview', label: '表示' }
 ]
 
 const GLYPH: Record<string, { mark: string; color: string }> = {
@@ -138,7 +138,6 @@ export function TabBar(): React.JSX.Element | null {
 function MarkdownToolbar({ tab }: { tab: TabInfo }): React.JSX.Element {
   return (
     <div className="md-toolbar">
-      <span className="md-toolbar-label">Markdown</span>
       <div className="md-seg" role="group" aria-label="表示モード">
         {MD_MODES.map((mode) => (
           <button
