@@ -5,78 +5,8 @@ import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
 import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
 import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+import { languageFromFileName } from '../../../shared/fileTypes'
 import type { ThemeId } from '../../../shared/theme'
-
-const EXTRA: Record<string, string> = {
-  md: 'markdown',
-  markdown: 'markdown',
-  mdx: 'markdown',
-  js: 'javascript',
-  mjs: 'javascript',
-  cjs: 'javascript',
-  jsx: 'javascript',
-  ts: 'typescript',
-  tsx: 'typescript',
-  cts: 'typescript',
-  mts: 'typescript',
-  json: 'json',
-  jsonc: 'json',
-  html: 'html',
-  htm: 'html',
-  css: 'css',
-  scss: 'scss',
-  less: 'less',
-  py: 'python',
-  pyw: 'python',
-  go: 'go',
-  rs: 'rust',
-  java: 'java',
-  kt: 'kotlin',
-  kts: 'kotlin',
-  swift: 'swift',
-  cs: 'csharp',
-  c: 'c',
-  h: 'c',
-  cpp: 'cpp',
-  cc: 'cpp',
-  cxx: 'cpp',
-  hpp: 'cpp',
-  hh: 'cpp',
-  rb: 'ruby',
-  php: 'php',
-  sql: 'sql',
-  sh: 'shell',
-  bash: 'shell',
-  zsh: 'shell',
-  ps1: 'powershell',
-  psm1: 'powershell',
-  yaml: 'yaml',
-  yml: 'yaml',
-  xml: 'xml',
-  lua: 'lua',
-  r: 'r',
-  dart: 'dart',
-  proto: 'protobuf',
-  graphql: 'graphql',
-  gql: 'graphql',
-  vue: 'html',
-  svelte: 'html',
-  astro: 'html',
-  ini: 'ini',
-  env: 'ini',
-  conf: 'ini',
-  toml: 'ini',
-  bat: 'bat',
-  cmd: 'bat',
-  pl: 'perl',
-  scala: 'scala',
-  groovy: 'java',
-  gradle: 'java',
-  cmake: 'makefile',
-  mk: 'makefile',
-  txt: 'plaintext',
-  csv: 'plaintext'
-}
 
 export function setupMonaco(): void {
   const env: Environment = {
@@ -193,12 +123,10 @@ export function isMarkdownLanguage(language: string): boolean {
 export function languageFromPath(filePath: string | null | undefined): string {
   if (!filePath) return 'plaintext'
   const base = filePath.split(/[/\\]/).pop() ?? ''
-  const lower = base.toLowerCase()
-  if (lower === 'dockerfile' || lower.startsWith('dockerfile.')) return 'dockerfile'
-  if (lower === 'makefile' || lower === 'gnumakefile') return 'makefile'
-  const ext = lower.includes('.') ? lower.slice(lower.lastIndexOf('.') + 1) : ''
-  const mapped = EXTRA[ext]
+  const mapped = languageFromFileName(base)
   if (mapped) return mapped
+  const lower = base.toLowerCase()
+  const ext = lower.includes('.') ? lower.slice(lower.lastIndexOf('.') + 1) : ''
   const dotted = ext ? `.${ext}` : ''
   for (const lang of monaco.languages.getLanguages()) {
     if (lang.filenames?.some((name) => name.toLowerCase() === lower)) return lang.id

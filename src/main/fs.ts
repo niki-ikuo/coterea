@@ -4,53 +4,13 @@ import { FILE_LINE_WARN, FILE_SIZE_WARN_BYTES, type ReadFileResult, type SaveRes
 import { DEFAULT_ENCODING, type EncodingId } from '../shared/encoding'
 import { decodeBuffer, detectEncoding, encodeText } from './encoding'
 import { resolveFileIds } from './fileIdentity'
-
-const FILTERS = [
-  { name: 'テキスト', extensions: ['txt', 'md', 'markdown', 'mdx'] },
-  {
-    name: 'コード',
-    extensions: [
-      'json',
-      'csv',
-      'html',
-      'htm',
-      'css',
-      'scss',
-      'js',
-      'jsx',
-      'ts',
-      'tsx',
-      'py',
-      'go',
-      'rs',
-      'java',
-      'c',
-      'h',
-      'cpp',
-      'cs',
-      'rb',
-      'php',
-      'kt',
-      'swift',
-      'sql',
-      'sh',
-      'ps1',
-      'yaml',
-      'yml',
-      'xml',
-      'lua',
-      'r',
-      'dart'
-    ]
-  },
-  { name: 'すべてのファイル', extensions: ['*'] }
-]
+import { OPEN_FILTERS } from '../shared/fileTypes'
 
 export async function openFiles(win: BrowserWindow): Promise<string[]> {
   const result = await dialog.showOpenDialog(win, {
     title: 'ファイルを開く',
     properties: ['openFile', 'multiSelections'],
-    filters: FILTERS
+    filters: OPEN_FILTERS
   })
   return result.canceled ? [] : result.filePaths
 }
@@ -86,7 +46,7 @@ export async function saveAs(win: BrowserWindow, suggestedName?: string): Promis
   const result = await dialog.showSaveDialog(win, {
     title: '名前を付けて保存',
     defaultPath: suggestedName,
-    filters: FILTERS
+    filters: OPEN_FILTERS
   })
   return { canceled: result.canceled, path: result.filePath ?? null }
 }
