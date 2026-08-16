@@ -15,8 +15,8 @@ export type TabDoc = {
 }
 
 const docs = new Map<string, TabDoc>()
-const pendingUpdates = new Map<string, Uint8Array[]>()
-const pendingAwareness = new Map<string, Uint8Array[]>()
+const pendingSync = new Map<string, Uint8Array>()
+const pendingAwareness = new Map<string, Uint8Array>()
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
@@ -77,23 +77,44 @@ export function createTabDoc(
 
   ydoc.on('update', (update: Uint8Array, origin: unknown) => {
     if (origin === 'remote') return
-    sendYjs(id, update)
+    sendYjs(tab.id, update)
   })
   awareness.on('update', ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
     refreshRemoteCursorStyles(awareness)
     if (origin === 'remote') return
     const changed = added.concat(updated, removed)
-    sendAwareness(id, encodeAwarenessUpdate(awareness, changed))
+    sendAwareness(tab.id, encodeAwarenessUpdate(awareness, changed))
   })
 
-  const queued = pendingUpdates.get(id) ?? []
-  pendingUpdates.delete(id)
-  for (const u of queued) Y.applyUpdate(ydoc, u, 'remote')
-  const queuedAw = pendingAwareness.get(id) ?? []
-  pendingAwareness.delete(id)
-  for (const u of queuedAw) applyAwarenessUpdate(awareness, u, 'remote')
-
+  flushPending(tab)
   return tab
+}
+
+function flushPending(tab: TabDoc): void {
+  const queued = pendingSync.get(tab.id)
+  pendingSync.delete(tab.id)
+  if (queued) Y.applyUpdate(tab.ydoc, queued, 'remote')
+  const queuedAw = pendingAwareness.get(tab.id)
+  pendingAwareness.delete(tab.id)
+  if (queuedAw) applyAwarenessUpdate(tab.awareness, queuedAw, 'remote')
+}
+
+/** 正本 ID に付け替える。既存の Y.Doc は捨てず、中身を合流する。 */
+export function retargetTabDoc(oldId: string, newId: string): void {
+  if (oldId === newId) return
+  const old = docs.get(oldId)
+  if (!old) return
+  const existing = docs.get(newId)
+  if (!existing) {
+    docs.delete(oldId)
+    old.id = newId
+    docs.set(newId, old)
+    flushPending(old)
+    return
+  }
+  Y.applyUpdate(existing.ydoc, Y.encodeStateAsUpdate(old.ydoc), 'merge')
+  disposeTabDoc(oldId)
+  flushPending(existing)
 }
 
 export function getTabDoc(id: string): TabDoc | undefined {
@@ -140,23 +161,33 @@ export function encodeDoc(id: string): Uint8Array {
   return Y.encodeStateAsUpdate(tab.ydoc)
 }
 
+export function encodeAwarenessAll(id: string): Uint8Array {
+  const tab = docs.get(id)
+  if (!tab) return new Uint8Array()
+  const ids = [...tab.awareness.getStates().keys()]
+  if (ids.length === 0) return new Uint8Array()
+  return encodeAwarenessUpdate(tab.awareness, ids)
+}
+
 export function applyYjs(id: string, update: Uint8Array): void {
   const tab = docs.get(id)
-  if (!tab) {
-    const list = pendingUpdates.get(id) ?? []
-    list.push(update)
-    pendingUpdates.set(id, list)
+  if (!tab) return
+  Y.applyUpdate(tab.ydoc, update, 'remote')
+}
+
+/** 未オープンの正本へ届いた全文スナップショットだけ保持する。増分は捨てる。 */
+export function stashSync(id: string, update: Uint8Array): void {
+  if (docs.has(id)) {
+    applyYjs(id, update)
     return
   }
-  Y.applyUpdate(tab.ydoc, update, 'remote')
+  pendingSync.set(id, update)
 }
 
 export function applyAwarenessBytes(id: string, update: Uint8Array): void {
   const tab = docs.get(id)
   if (!tab) {
-    const list = pendingAwareness.get(id) ?? []
-    list.push(update)
-    pendingAwareness.set(id, list)
+    pendingAwareness.set(id, update)
     return
   }
   applyAwarenessUpdate(tab.awareness, update, 'remote')
@@ -184,6 +215,8 @@ export function disposeTabDoc(id: string): void {
   tab.ydoc.destroy()
   tab.model.dispose()
   docs.delete(id)
+  pendingSync.delete(id)
+  pendingAwareness.delete(id)
 }
 
 export function languageOf(path: string | null): string {

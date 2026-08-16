@@ -46,8 +46,12 @@ export class CollabHub {
   private win: BrowserWindow | null = null
   private leaving = false
   private connecting = false
+  private welcomed = false
   private tickTimer: NodeJS.Timeout | null = null
   private enabled = false
+  private connectError: string | null = null
+  private netHint: string | null = null
+  private stuckSince: number | null = null
 
   attachWindow(win: BrowserWindow): void {
     this.win = win
@@ -120,19 +124,25 @@ export class CollabHub {
     const others = this.discovery.others()
 
     if (this.role === 'host') {
+      this.updateStuckHint(others.length, this.clients.size)
       if (this.clients.size === 0 && others.length === 0) {
         void this.demoteToSolo()
       }
       return
     }
 
-    if (this.role === 'guest') return
+    if (this.role === 'guest') {
+      this.updateStuckHint(others.length, this.hostSocket ? 1 : 0)
+      return
+    }
 
     const liveHost = others.find((p) => p.role === 'host' && p.tcpPort)
     if (liveHost) {
       void this.connectAsGuest(liveHost)
       return
     }
+
+    this.updateStuckHint(others.length, 0)
 
     const members = [
       { peerId: this.localPeerId, startedAt: this.startedAt },
@@ -151,6 +161,9 @@ export class CollabHub {
       await this.startTcpServer()
       this.role = 'host'
       this.hostId = this.localPeerId
+      this.connectError = null
+      this.netHint = null
+      this.stuckSince = null
       this.publishPresence()
       this.emitState()
       this.sendToRenderer({ type: 'became-host' }, Buffer.alloc(0))
@@ -175,8 +188,11 @@ export class CollabHub {
   private async connectAsGuest(host: Presence): Promise<void> {
     if (this.connecting || this.role === 'guest') return
     this.connecting = true
+    this.welcomed = false
     this.role = 'guest'
     this.hostId = host.peerId
+    this.connectError = null
+    this.netHint = null
     this.publishPresence()
     this.emitState()
     try {
@@ -198,16 +214,18 @@ export class CollabHub {
         )
         this.hostSocket = socket
         this.hostReader = new FrameReader()
-        let welcomed = false
         socket.on('data', (chunk) => {
           try {
             const frames = this.hostReader!.push(chunk)
             for (const frame of frames) {
-              if (frame.msg.type === 'welcome' && !welcomed) {
-                welcomed = true
+              if (frame.msg.type === 'welcome' && !this.welcomed) {
+                this.welcomed = true
                 clearTimeout(timer)
                 this.docs = (frame.msg.docs as DocMeta[]) ?? this.docs
                 if (typeof frame.msg.color === 'string') this.localColor = frame.msg.color
+                this.connectError = null
+                this.netHint = null
+                this.stuckSince = null
                 this.sendToRenderer({ type: 'became-guest', docs: this.docs }, Buffer.alloc(0))
                 this.emitState()
                 resolve()
@@ -225,21 +243,28 @@ export class CollabHub {
           reject(err)
         })
         socket.on('close', () => {
-          if (this.role === 'guest' && !this.leaving) {
+          if (this.welcomed && this.role === 'guest' && !this.leaving) {
             this.onHostLost()
           }
         })
       })
-    } catch {
+    } catch (err) {
       this.hostSocket?.destroy()
       this.hostSocket = null
       this.hostReader = null
       this.role = 'solo'
       this.hostId = null
+      this.welcomed = false
+      this.connectError =
+        err instanceof Error && err.message === 'ホストからの応答がありません'
+          ? 'ハブへの TCP 接続がタイムアウトしました。Windows ファイアウォールで Coterea を許可するか、無線 AP の端末間通信禁止（クライアント分離）を確認してください。'
+          : 'ハブへの TCP 接続に失敗しました。ファイアウォール、AP の隔離、別サブネットの可能性があります。'
+      this.netHint = this.connectError
       this.publishPresence()
       this.emitState()
     } finally {
       this.connecting = false
+      this.emitState()
     }
   }
 
@@ -248,6 +273,9 @@ export class CollabHub {
     this.hostReader = null
     this.hostId = null
     this.role = 'solo'
+    this.welcomed = false
+    this.connectError = null
+    this.netHint = 'ハブが切断されました。残りの最古参が引き継ぎ、文書を再同期します。'
     this.publishPresence()
     this.sendToRenderer({ type: 'host-lost' }, Buffer.alloc(0))
     this.emitState()
@@ -257,6 +285,9 @@ export class CollabHub {
     await this.tearDownTcp()
     this.role = 'solo'
     this.hostId = null
+    this.connectError = null
+    this.netHint = null
+    this.stuckSince = null
     this.publishPresence()
     this.sendToRenderer({ type: 'became-solo' }, Buffer.alloc(0))
     this.emitState()
@@ -366,17 +397,50 @@ export class CollabHub {
 
   private emitState(): void {
     if (this.leaving || !this.rendererAlive()) return
+    const others = this.discovery.others()
+    const status =
+      this.connecting && !this.welcomed
+        ? 'connecting'
+        : this.role === 'host'
+          ? 'hosting'
+          : this.role === 'guest' && this.welcomed
+            ? 'joined'
+            : this.role === 'guest'
+              ? 'connecting'
+              : 'solo'
     const peers = this.role === 'guest' ? undefined : this.collectPeers()
     this.win!.webContents.send('collab:state', {
-      status: this.role === 'host' ? 'hosting' : this.role === 'guest' ? 'joined' : 'solo',
+      status,
       role: this.role,
       localPeerId: this.localPeerId,
       localColor: this.localColor,
       startedAt: this.startedAt,
-      peers
+      peers,
+      udpPeerCount: others.length,
+      tcpPeerCount: this.role === 'host' ? this.clients.size : this.welcomed && this.hostSocket ? 1 : 0,
+      connectError: this.connectError,
+      netHint: this.netHint
     })
     if (this.role === 'host') {
       this.broadcast({ type: 'peer-list', peers: this.collectPeers() }, undefined, null)
+    }
+  }
+
+  private updateStuckHint(udpOthers: number, tcpPeers: number): void {
+    const stuck = udpOthers > 0 && tcpPeers === 0 && !this.connecting
+    if (!stuck) {
+      this.stuckSince = null
+      return
+    }
+    if (!this.stuckSince) this.stuckSince = Date.now()
+    if (Date.now() - this.stuckSince < 5000) return
+    const next =
+      this.role === 'host'
+        ? 'こちらはハブですが、相手からの TCP が5秒以上届いていません。Windows ファイアウォールの受信許可、または無線 AP の端末間通信禁止（クライアント分離）を確認してください。'
+        : 'LAN上の相手を検出していますが、TCP でつながっていません。ファイアウォール、AP の隔離、別サブネットの可能性があります。'
+    if (this.netHint !== next) {
+      this.netHint = next
+      this.emitState()
     }
   }
 

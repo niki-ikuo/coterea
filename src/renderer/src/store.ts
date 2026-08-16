@@ -27,7 +27,12 @@ export type CollabState = {
   startedAt: number | null
   peers: PeerInfo[]
   sharedKeys: string[]
+  remoteFileTitles: string[]
+  identityHint: string | null
   error: string | null
+  netHint: string | null
+  udpPeerCount: number
+  tcpPeerCount: number
 }
 
 type AppState = {
@@ -60,7 +65,12 @@ const idleCollab: CollabState = {
   startedAt: null,
   peers: [],
   sharedKeys: [],
-  error: null
+  remoteFileTitles: [],
+  identityHint: null,
+  error: null,
+  netHint: null,
+  udpPeerCount: 0,
+  tcpPeerCount: 0
 }
 
 export const useAppStore = create<AppState>((set) => ({

@@ -831,6 +831,13 @@ button:disabled {
   margin: 0;
 }
 
+.warn {
+  color: var(--danger);
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 label {
   display: flex;
   flex-direction: column;

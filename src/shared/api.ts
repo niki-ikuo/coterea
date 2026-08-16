@@ -30,6 +30,10 @@ export interface CotereaApi {
         localColor: string
         startedAt?: number
         peers: PeerInfo[] | undefined
+        udpPeerCount?: number
+        tcpPeerCount?: number
+        connectError?: string | null
+        netHint?: string | null
       }) => void
     ) => () => void
     onPeers: (cb: (payload: { peers: PeerInfo[] }) => void) => () => void

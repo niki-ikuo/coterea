@@ -38,25 +38,33 @@ export function RightPane(): React.JSX.Element {
         <div className="label">状態</div>
         <p className="status-line">
           {collab.status === 'solo' &&
-            (collab.peers.length > 1 ? 'LAN上の相手を検出。接続を準備しています' : '一人で編集中（共同編集サーバーは起動していません）')}
+            (collab.udpPeerCount > 0
+              ? 'LAN上の相手を検出。接続を準備しています'
+              : '一人で編集中（共同編集サーバーは起動していません）')}
           {collab.status === 'connecting' && '接続中…'}
           {collab.status === 'hosting' && `ハブ（先にいた人）· ${count}人`}
           {collab.status === 'joined' && `参加中 · ${count}人`}
           {collab.status === 'error' && (collab.error ?? 'エラー')}
         </p>
-        {collab.status !== 'error' && collab.error && <p className="error">{collab.error}</p>}
+        {collab.netHint && <p className={collab.error ? 'error' : 'warn'}>{collab.netHint}</p>}
       </section>
 
       <section className="pane-card">
         <div className="label">共有中のファイル</div>
         {collab.sharedKeys.length === 0 ? (
-          <p className="muted">同じ実体のファイルを開くと、そのファイルだけ同期します。パス表記が違っても同一ファイルなら共有します。</p>
+          <p className="muted">
+            {collab.identityHint ??
+              '同じ実体のファイルを開くと、そのファイルだけ同期します。パス表記が違っても同一ファイルなら共有します。'}
+          </p>
         ) : (
           <ul className="peer-list">
             {collab.sharedKeys.map((key) => (
               <li key={key}>{key}</li>
             ))}
           </ul>
+        )}
+        {collab.identityHint && collab.sharedKeys.length === 0 && collab.remoteFileTitles.length > 0 && (
+          <p className="muted small">相手が開いている名前: {collab.remoteFileTitles.join('、')}</p>
         )}
       </section>
 
@@ -81,7 +89,7 @@ export function RightPane(): React.JSX.Element {
 
       <div className="pane-actions">
         <p className="hint">
-          同一LANのCotereaは自動でつながります。ハブは先にいた人です。切れたら残りの最古参が引き継ぎます。同期は同じ実体のファイルだけです（無題は共有しません）。
+          同一LANのCotereaは自動でつながります。ハブは先にいた人です。切れたら残りの最古参が引き継ぎ、文書を再同期します。同期は同じ実体のファイルだけです。別PCのローカルコピー同士や無題は共有しません。
         </p>
       </div>
     </aside>
