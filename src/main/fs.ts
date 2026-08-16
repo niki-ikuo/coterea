@@ -1,6 +1,15 @@
+import { randomBytes } from 'crypto'
 import { dialog, type BrowserWindow } from 'electron'
-import { readFile, writeFile, stat } from 'fs/promises'
-import { FILE_LINE_WARN, FILE_SIZE_WARN_BYTES, type ReadFileResult, type SaveResult } from '../shared/types'
+import { basename, dirname, join } from 'path'
+import { copyFile, readFile, rename, stat, unlink, writeFile } from 'fs/promises'
+import {
+  FILE_LINE_WARN,
+  FILE_SIZE_WARN_BYTES,
+  type ExternalChangeDecision,
+  type ReadFileResult,
+  type SaveResult,
+  type WriteFileResult
+} from '../shared/types'
 import { DEFAULT_ENCODING, type EncodingId } from '../shared/encoding'
 import { decodeBuffer, detectEncoding, encodeText } from './encoding'
 import { resolveFileIds } from './fileIdentity'
@@ -34,12 +43,38 @@ export async function readTextFile(filePath: string, encoding?: EncodingId): Pro
   }
 }
 
+export async function peekTextFile(filePath: string, encoding?: EncodingId): Promise<string | null> {
+  try {
+    const buf = await readFile(filePath)
+    const used = encoding ?? detectEncoding(buf)
+    return decodeBuffer(buf, used)
+  } catch {
+    return null
+  }
+}
+
 export async function writeTextFile(
   filePath: string,
   content: string,
   encoding: EncodingId = DEFAULT_ENCODING
-): Promise<void> {
-  await writeFile(filePath, encodeText(content, encoding))
+): Promise<WriteFileResult> {
+  const buf = encodeText(content, encoding)
+  const dir = dirname(filePath)
+  const tmp = join(dir, `.${basename(filePath)}.${randomBytes(6).toString('hex')}.tmp`)
+  await writeFile(tmp, buf)
+  try {
+    try {
+      await rename(tmp, filePath)
+    } catch {
+      await copyFile(tmp, filePath)
+      await unlink(tmp)
+    }
+  } catch (err) {
+    await unlink(tmp).catch(() => undefined)
+    throw err
+  }
+  const info = await stat(filePath)
+  return { mtimeMs: info.mtimeMs, size: info.size }
 }
 
 export async function saveAs(win: BrowserWindow, suggestedName?: string): Promise<SaveResult> {
@@ -64,6 +99,22 @@ export async function confirmUnsaved(win: BrowserWindow, names: string[]): Promi
   if (result.response === 0) return 'save'
   if (result.response === 1) return 'discard'
   return 'cancel'
+}
+
+export async function confirmExternalChange(
+  win: BrowserWindow,
+  filePath: string
+): Promise<ExternalChangeDecision> {
+  const result = await dialog.showMessageBox(win, {
+    type: 'warning',
+    title: 'ディスク上の変更',
+    message: 'このファイルはエディタの外で変更されました。',
+    detail: filePath,
+    buttons: ['取り込む', '無視する'],
+    defaultId: 0,
+    cancelId: 1
+  })
+  return result.response === 0 ? 'reload' : 'ignore'
 }
 
 export async function warnLargeFile(win: BrowserWindow, filePath: string): Promise<boolean> {

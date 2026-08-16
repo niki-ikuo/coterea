@@ -12,6 +12,7 @@ export type TabDoc = {
   undo: Y.UndoManager
   model: monaco.editor.ITextModel
   binding: MonacoBinding | null
+  editors: Set<monaco.editor.IStandaloneCodeEditor>
 }
 
 const docs = new Map<string, TabDoc>()
@@ -65,41 +66,91 @@ export function createTabDoc(
 
   const ydoc = new Y.Doc()
   const ytext = ydoc.getText('monaco')
-  if (content) ytext.insert(0, content)
+  const queued = pendingSync.get(id)
+  if (queued) {
+    pendingSync.delete(id)
+    Y.applyUpdate(ydoc, queued, 'remote')
+  } else if (content) {
+    ytext.insert(0, content)
+  }
   const awareness = new Awareness(ydoc)
   awareness.setLocalStateField('user', { name: user.name, color: user.color })
   const undo = new Y.UndoManager(ytext)
   const uri = monaco.Uri.parse(`coterea://tab/${id}`)
   const model = monaco.editor.createModel(ytext.toString(), language, uri)
 
-  const tab: TabDoc = { id, ydoc, ytext, awareness, undo, model, binding: null }
+  const tab: TabDoc = { id, ydoc, ytext, awareness, undo, model, binding: null, editors: new Set() }
   docs.set(id, tab)
-
-  ydoc.on('update', (update: Uint8Array, origin: unknown) => {
-    if (origin === 'remote') return
-    sendYjs(tab.id, update)
-  })
-  awareness.on('update', ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
-    refreshRemoteCursorStyles(awareness)
-    if (origin === 'remote') return
-    const changed = added.concat(updated, removed)
-    sendAwareness(tab.id, encodeAwarenessUpdate(awareness, changed))
-  })
-
-  flushPending(tab)
+  attachDocEvents(tab)
+  flushPendingAwareness(tab)
   return tab
 }
 
-function flushPending(tab: TabDoc): void {
-  const queued = pendingSync.get(tab.id)
-  pendingSync.delete(tab.id)
-  if (queued) Y.applyUpdate(tab.ydoc, queued, 'remote')
+function attachDocEvents(tab: TabDoc): void {
+  tab.ydoc.on('update', (update: Uint8Array, origin: unknown) => {
+    if (origin === 'remote') return
+    sendYjs(tab.id, update)
+  })
+  tab.awareness.on('update', ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
+    refreshRemoteCursorStyles(tab.awareness)
+    if (origin === 'remote') return
+    const changed = added.concat(updated, removed)
+    sendAwareness(tab.id, encodeAwarenessUpdate(tab.awareness, changed))
+  })
+}
+
+function flushPendingAwareness(tab: TabDoc): void {
   const queuedAw = pendingAwareness.get(tab.id)
   pendingAwareness.delete(tab.id)
   if (queuedAw) applyAwarenessUpdate(tab.awareness, queuedAw, 'remote')
 }
 
-/** 正本 ID に付け替える。既存の Y.Doc は捨てず、中身を合流する。 */
+function localUserOf(tab: TabDoc): { name: string; color: string } {
+  const user = tab.awareness.getLocalState()?.user as { name?: string; color?: string } | undefined
+  return { name: user?.name ?? '自分', color: user?.color ?? '#e7c9a5' }
+}
+
+/** 正本のスナップショットで Y.Doc を置き換える。独立初期化した文書同士のマージはしない。 */
+export function applyFullSync(id: string, update: Uint8Array): void {
+  const tab = docs.get(id)
+  if (!tab) {
+    pendingSync.set(id, update)
+    return
+  }
+  const user = localUserOf(tab)
+  const editors = [...tab.editors]
+  tab.binding?.destroy()
+  tab.binding = null
+  tab.awareness.destroy()
+  tab.ydoc.destroy()
+
+  const ydoc = new Y.Doc()
+  Y.applyUpdate(ydoc, update, 'remote')
+  const ytext = ydoc.getText('monaco')
+  const awareness = new Awareness(ydoc)
+  awareness.setLocalStateField('user', user)
+  const undo = new Y.UndoManager(ytext)
+  tab.ydoc = ydoc
+  tab.ytext = ytext
+  tab.awareness = awareness
+  tab.undo = undo
+  attachDocEvents(tab)
+  const next = ytext.toString()
+  if (tab.model.getValue() !== next) tab.model.setValue(next)
+  if (editors.length > 0) {
+    tab.binding = new MonacoBinding(ytext, tab.model, new Set(editors), awareness)
+  }
+  flushPendingAwareness(tab)
+}
+
+function flushPending(tab: TabDoc): void {
+  const queued = pendingSync.get(tab.id)
+  pendingSync.delete(tab.id)
+  if (queued) applyFullSync(tab.id, queued)
+  else flushPendingAwareness(tab)
+}
+
+/** 正本 ID に付け替える。正本の Y.Doc が既にあればそちらを残し、二重の全文は混ぜない。 */
 export function retargetTabDoc(oldId: string, newId: string): void {
   if (oldId === newId) return
   const old = docs.get(oldId)
@@ -112,7 +163,6 @@ export function retargetTabDoc(oldId: string, newId: string): void {
     flushPending(old)
     return
   }
-  Y.applyUpdate(existing.ydoc, Y.encodeStateAsUpdate(old.ydoc), 'merge')
   disposeTabDoc(oldId)
   flushPending(existing)
 }
@@ -124,8 +174,9 @@ export function getTabDoc(id: string): TabDoc | undefined {
 export function bindEditor(id: string, editor: monaco.editor.IStandaloneCodeEditor): void {
   const tab = docs.get(id)
   if (!tab) return
+  tab.editors.add(editor)
   tab.binding?.destroy()
-  tab.binding = new MonacoBinding(tab.ytext, tab.model, new Set([editor]), tab.awareness)
+  tab.binding = new MonacoBinding(tab.ytext, tab.model, tab.editors, tab.awareness)
 }
 
 export function unbindEditor(id: string): void {
@@ -133,6 +184,7 @@ export function unbindEditor(id: string): void {
   if (!tab) return
   tab.binding?.destroy()
   tab.binding = null
+  tab.editors.clear()
 }
 
 export function setLanguage(id: string, language: string): void {
@@ -177,11 +229,7 @@ export function applyYjs(id: string, update: Uint8Array): void {
 
 /** 未オープンの正本へ届いた全文スナップショットだけ保持する。増分は捨てる。 */
 export function stashSync(id: string, update: Uint8Array): void {
-  if (docs.has(id)) {
-    applyYjs(id, update)
-    return
-  }
-  pendingSync.set(id, update)
+  applyFullSync(id, update)
 }
 
 export function applyAwarenessBytes(id: string, update: Uint8Array): void {

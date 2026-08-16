@@ -4,7 +4,8 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { CollabHub } from './collab/hub'
 import { AppStore } from './store'
 import { buildMenu } from './menu'
-import { confirmUnsaved, openFiles, readTextFile, saveAs, warnLargeFile, writeTextFile } from './fs'
+import { confirmExternalChange, confirmUnsaved, openFiles, peekTextFile, readTextFile, saveAs, warnLargeFile, writeTextFile } from './fs'
+import { FileWatcher } from './fileWatch'
 import { resolveFileIds } from './fileIdentity'
 import type { ControlMessage } from './collab/frame'
 import type { DocMeta } from '../shared/types'
@@ -19,6 +20,7 @@ import appIcon from '../../resources/icon.png?asset'
 
 const store = new AppStore()
 const hub = new CollabHub()
+const fileWatcher = new FileWatcher()
 let mainWindow: BrowserWindow | null = null
 let allowClose = false
 let launchFiles: string[] = []
@@ -105,6 +107,7 @@ function createWindow(): void {
   mainWindow.setMenuBarVisibility(false)
 
   hub.attachWindow(mainWindow)
+  fileWatcher.attachWindow(mainWindow)
   attachZoomShortcuts(mainWindow)
 
   mainWindow.on('ready-to-show', () => {
@@ -162,10 +165,15 @@ function registerIpc(): void {
   ipcMain.handle('fs:identity', async (_e, filePath: string) => {
     return resolveFileIds(filePath)
   })
+  ipcMain.handle('fs:peek', async (_e, filePath: string, encoding?: string) => {
+    return peekTextFile(filePath, parseEncoding(encoding))
+  })
   ipcMain.handle('fs:write', async (_e, filePath: string, content: string, encoding?: string) => {
-    await writeTextFile(filePath, content, parseEncoding(encoding) ?? DEFAULT_ENCODING)
+    const result = await writeTextFile(filePath, content, parseEncoding(encoding) ?? DEFAULT_ENCODING)
+    fileWatcher.noteOwnWrite(filePath, result)
     await store.addRecent(filePath)
     await refreshMenu()
+    return result
   })
   ipcMain.handle('fs:saveAs', async (_e, suggestedName?: string) => {
     if (!mainWindow) return { canceled: true, path: null }
@@ -174,6 +182,16 @@ function registerIpc(): void {
   ipcMain.handle('fs:confirmUnsaved', async (_e, names: string[]) => {
     if (!mainWindow) return 'cancel'
     return confirmUnsaved(mainWindow, names)
+  })
+  ipcMain.handle('fs:confirmExternalChange', async (_e, filePath: string) => {
+    if (!mainWindow) return 'ignore'
+    return confirmExternalChange(mainWindow, filePath)
+  })
+  ipcMain.handle('fs:watch', (_e, filePath: string) => {
+    if (typeof filePath === 'string' && filePath) fileWatcher.watch(filePath)
+  })
+  ipcMain.handle('fs:unwatch', (_e, filePath: string) => {
+    if (typeof filePath === 'string' && filePath) fileWatcher.unwatch(filePath)
   })
   ipcMain.handle('collab:enable', async (_e, displayName: string) => {
     return hub.enable(displayName)
@@ -184,6 +202,9 @@ function registerIpc(): void {
   ipcMain.handle('collab:setDocs', (_e, docs: DocMeta[]) => {
     hub.setSharedDocs(docs)
   })
+  ipcMain.handle('collab:startHost', () => hub.startHost())
+  ipcMain.handle('collab:join', (_e, host: string, port: number) => hub.joinManual(host, port))
+  ipcMain.handle('collab:leave', () => hub.leave())
   ipcMain.on('collab:send', (_e, msg: ControlMessage, binary?: ArrayBuffer) => {
     hub.sendFromRenderer(msg, binary ? Buffer.from(binary) : undefined)
   })
@@ -256,6 +277,7 @@ if (!gotLock) {
 
   app.on('window-all-closed', () => {
     hub.dispose()
+    fileWatcher.dispose()
     if (process.platform !== 'darwin') app.quit()
   })
 }

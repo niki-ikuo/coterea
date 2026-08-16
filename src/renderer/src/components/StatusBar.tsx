@@ -36,6 +36,11 @@ export function StatusBar(): React.JSX.Element {
       )}
       {tab ? <EncodingPicker tabId={tab.id} encoding={tab.encoding} hasPath={Boolean(tab.path)} /> : <span>UTF-8</span>}
       <span title={collab.netHint ?? undefined}>共同編集: {collabLabel}</span>
+      {tab?.saveError ? (
+        <span className="error" title={tab.saveError}>
+          保存失敗
+        </span>
+      ) : null}
       <span>AI: 未設定</span>
     </footer>
   )

@@ -1,6 +1,6 @@
 import { languageFromPath, titleFromPath, isMarkdownLanguage } from './monacoEnv'
 import { createTabDoc, disposeTabDoc, getText, languageOf, replaceText, setLanguage } from './docs'
-import { announceNewDoc, isCollabActive, publishManifest } from './collab'
+import { announceNewDoc, flushPendingSaves, isCollabActive, isTabSaving, publishManifest, withSuppressDirty } from './collab'
 import { useAppStore, type MdView, type TabInfo } from '../store'
 import { DEFAULT_ENCODING, type EncodingId } from '../../../shared/encoding'
 import { idsOverlap } from '../../../shared/fileSession'
@@ -28,13 +28,102 @@ export function createUntitled(): TabInfo {
     fileIds: [],
     mdView: 'edit',
     mdSplitPct: 50,
-    mdScrollSync: true
+    mdScrollSync: true,
+    saveError: null
   }
   createTabDoc(id, '', 'plaintext', { name: displayName, color: collab.localColor })
   useAppStore.getState().setTabs((tabs) => [...tabs, tab])
   useAppStore.getState().setActiveTabId(id)
   announceNewDoc(tab)
   return tab
+}
+
+function watchPath(filePath: string | null): void {
+  if (filePath) void window.coterea.fs.watch(filePath)
+}
+
+function unwatchIfUnused(filePath: string | null, exceptTabId?: string): void {
+  if (!filePath) return
+  const still = useAppStore.getState().tabs.some((t) => t.path === filePath && t.id !== exceptTabId)
+  if (!still) void window.coterea.fs.unwatch(filePath)
+}
+
+function samePath(a: string, b: string): boolean {
+  return a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase()
+}
+
+function normalizeText(text: string): string {
+  return text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+}
+
+type DiskSnap = { status: 'match' | 'differ' | 'unknown'; disk: string | null }
+
+async function readDiskSnap(tab: TabInfo): Promise<DiskSnap> {
+  if (!tab.path) return { status: 'match', disk: '' }
+  const disk = await window.coterea.fs.peek(tab.path, tab.encoding)
+  if (disk == null) return { status: 'unknown', disk: null }
+  const nDisk = normalizeText(disk)
+  const nEd = normalizeText(getText(tab.id))
+  return { status: nDisk === nEd ? 'match' : 'differ', disk: nDisk }
+}
+
+function tabByPath(filePath: string): TabInfo | undefined {
+  return useAppStore.getState().tabs.find((t) => t.path && samePath(t.path, filePath))
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function waitUntilQuiet(tabId: string): Promise<void> {
+  for (let i = 0; i < 10; i++) {
+    if (!isTabSaving(tabId)) return
+    await sleep(200)
+  }
+}
+
+export async function reloadTabFromDisk(tabId: string): Promise<void> {
+  const tab = useAppStore.getState().tabs.find((t) => t.id === tabId)
+  if (!tab?.path) return
+  const read = await window.coterea.fs.read(tab.path, tab.encoding)
+  if (!read) return
+  withSuppressDirty(() => replaceText(tabId, read.content))
+  useAppStore.getState().setTabs((tabs) =>
+    tabs.map((t) => (t.id === tabId ? { ...t, isDirty: false, saveError: null, encoding: read.encoding } : t))
+  )
+}
+
+export function attachFileWatch(): () => void {
+  const prompting = new Set<string>()
+  return window.coterea.fs.onChanged(async ({ path }) => {
+    const key = path.replace(/\\/g, '/').toLowerCase()
+    const tab = tabByPath(path)
+    if (!tab || prompting.has(key)) return
+    await waitUntilQuiet(tab.id)
+    const first = await readDiskSnap(tab)
+    if (first.status !== 'differ') return
+    await sleep(isCollabActive() ? 1000 : 400)
+    const mid = tabByPath(path)
+    if (!mid) return
+    await waitUntilQuiet(mid.id)
+    const second = await readDiskSnap(mid)
+    if (second.status !== 'differ' || second.disk == null) return
+    await sleep(400)
+    const latest = tabByPath(path)
+    if (!latest) return
+    const third = await readDiskSnap(latest)
+    if (third.status !== 'differ' || third.disk == null) return
+    if (third.disk !== second.disk) return
+    if (prompting.has(key)) return
+    prompting.add(key)
+    try {
+      const decision = await window.coterea.fs.confirmExternalChange(latest.path ?? path)
+      const after = tabByPath(path)
+      if (decision === 'reload' && after) await reloadTabFromDisk(after.id)
+    } finally {
+      prompting.delete(key)
+    }
+  })
 }
 
 export async function toggleCollabPane(): Promise<void> {
@@ -89,10 +178,12 @@ export async function openPaths(paths: string[]): Promise<void> {
       fileIds: read.fileIds,
       mdView: mdViewFor(language),
       mdSplitPct: 50,
-      mdScrollSync: true
+      mdScrollSync: true,
+      saveError: null
     }
     useAppStore.getState().setTabs((prev) => [...prev, tab])
     useAppStore.getState().setActiveTabId(id)
+    watchPath(filePath)
     announceNewDoc(tab)
   }
 }
@@ -111,10 +202,19 @@ export async function saveTab(tabId: string, saveAs = false): Promise<boolean> {
     if (result.canceled || !result.path) return false
     path = result.path
   }
-  await window.coterea.fs.write(path, getText(tabId), tab.encoding)
+  try {
+    await window.coterea.fs.write(path, getText(tabId), tab.encoding)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    useAppStore.getState().setTabs((tabs) =>
+      tabs.map((t) => (t.id === tabId ? { ...t, saveError: message } : t))
+    )
+    return false
+  }
   const fileIds = await window.coterea.fs.identity(path)
   const language = languageFromPath(path)
   setLanguage(tabId, language)
+  const previousPath = tab.path
   useAppStore.getState().setTabs((tabs) =>
     tabs.map((t) =>
       t.id === tabId
@@ -125,20 +225,24 @@ export async function saveTab(tabId: string, saveAs = false): Promise<boolean> {
             title: titleFromPath(path),
             language,
             isDirty: false,
+            saveError: null,
             fileIds,
             mdView: mdViewFor(language, t.mdView)
           }
         : t
     )
   )
+  if (previousPath && previousPath !== path) unwatchIfUnused(previousPath, tabId)
+  watchPath(path)
   publishManifest()
   return true
 }
 
 export async function closeTab(tabId: string): Promise<void> {
+  await flushPendingSaves([tabId])
   const tab = useAppStore.getState().tabs.find((t) => t.id === tabId)
   if (!tab) return
-  if (tab.isDirty && !isCollabActive()) {
+  if (tab.isDirty) {
     const decision = await window.coterea.fs.confirmUnsaved([tab.title])
     if (decision === 'cancel') return
     if (decision === 'save') {
@@ -146,6 +250,7 @@ export async function closeTab(tabId: string): Promise<void> {
       if (!ok) return
     }
   }
+  unwatchIfUnused(tab.path, tabId)
   disposeTabDoc(tabId)
   const { tabs, activeTabId } = useAppStore.getState()
   const next = tabs.filter((t) => t.id !== tabId)
@@ -157,6 +262,7 @@ export async function closeTab(tabId: string): Promise<void> {
 }
 
 export async function handleAppClose(): Promise<void> {
+  await flushPendingSaves()
   const dirty = useAppStore.getState().tabs.filter((t) => t.isDirty)
   if (dirty.length > 0) {
     const decision = await window.coterea.fs.confirmUnsaved(dirty.map((t) => t.title))
@@ -227,10 +333,10 @@ export async function reopenWithEncoding(tabId: string, encoding: EncodingId): P
   }
   const read = await window.coterea.fs.read(tab.path, encoding)
   if (!read) return
-  replaceText(tabId, read.content)
+  withSuppressDirty(() => replaceText(tabId, read.content))
   useAppStore.getState().setTabs((tabs) =>
     tabs.map((t) =>
-      t.id === tabId ? { ...t, encoding: read.encoding, isDirty: false } : t
+      t.id === tabId ? { ...t, encoding: read.encoding, isDirty: false, saveError: null } : t
     )
   )
 }

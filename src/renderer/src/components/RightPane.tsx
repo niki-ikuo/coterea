@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { useAppStore } from '../store'
 import { setCollabPaneVisible } from '../lib/actions'
+import { joinManual, leaveManualSession, startManualHost } from '../lib/collab'
 
 export function RightPane(): React.JSX.Element {
   const displayName = useAppStore((s) => s.displayName)
@@ -9,6 +11,21 @@ export function RightPane(): React.JSX.Element {
     ? collab.peers
     : collab.peers.filter((peer) => peer.id === collab.localPeerId)
   const count = Math.max(participants.length, 1)
+  const [endpoint, setEndpoint] = useState('')
+  const [joining, setJoining] = useState(false)
+  const endpoints =
+    collab.status === 'hosting' && collab.tcpPort > 0
+      ? collab.listenAddresses.map((ip) => `${ip}:${collab.tcpPort}`)
+      : []
+
+  const onJoin = async (): Promise<void> => {
+    setJoining(true)
+    try {
+      await joinManual(endpoint)
+    } finally {
+      setJoining(false)
+    }
+  }
 
   return (
     <aside className="right-pane">
@@ -43,6 +60,53 @@ export function RightPane(): React.JSX.Element {
           {collab.status === 'error' && (collab.error ?? 'エラー')}
         </p>
         {collab.netHint && <p className={collab.error ? 'error' : 'warn'}>{collab.netHint}</p>}
+        {endpoints.length > 0 && (
+          <div className="listen-list">
+            <div className="label">待ち受け（手動接続用）</div>
+            {endpoints.map((item) => (
+              <div className="invite" key={item}>
+                <code>{item}</code>
+                <button
+                  type="button"
+                  onClick={() => void window.coterea.app.writeClipboard(item)}
+                >
+                  コピー
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {(collab.status === 'solo' || collab.status === 'connecting' || collab.status === 'error') && (
+          <div className="join-form">
+            <label>
+              IP:ポートで接続
+              <input
+                value={endpoint}
+                onChange={(e) => setEndpoint(e.target.value)}
+                placeholder="192.168.1.10:51234"
+                spellCheck={false}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void onJoin()
+                }}
+              />
+            </label>
+            <div className="join-actions">
+              <button type="button" className="primary" disabled={joining} onClick={() => void onJoin()}>
+                接続
+              </button>
+              <button type="button" disabled={joining} onClick={() => void startManualHost()}>
+                ハブとして待つ
+              </button>
+            </div>
+          </div>
+        )}
+        {(collab.status === 'hosting' || collab.status === 'joined') && (
+          <div className="join-actions">
+            <button type="button" onClick={() => void leaveManualSession()}>
+              {collab.status === 'hosting' ? 'ハブを停止' : '切断'}
+            </button>
+          </div>
+        )}
       </section>
 
       <section className="pane-card">
@@ -85,7 +149,7 @@ export function RightPane(): React.JSX.Element {
 
       <div className="pane-actions">
         <p className="hint">
-          同一LANのCotereaは自動でつながります。ハブは先にいた人です。切れたら残りの最古参が引き継ぎ、文書を再同期します。同期は同じ実体のファイルだけです。別PCのローカルコピー同士や無題は共有しません。
+          同一LANのCotereaは自動でつながります。UDP が届かないときは、ハブ側の IP:ポートをコピーして手動接続してください。同期は同じ実体のファイルだけです。
         </p>
       </div>
     </aside>

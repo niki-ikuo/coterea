@@ -17,6 +17,7 @@ export type TabInfo = {
   mdView: MdView
   mdSplitPct: number
   mdScrollSync: boolean
+  saveError: string | null
 }
 
 export type CollabState = {
@@ -33,6 +34,9 @@ export type CollabState = {
   netHint: string | null
   udpPeerCount: number
   tcpPeerCount: number
+  tcpPort: number
+  listenAddresses: string[]
+  holdHost: boolean
 }
 
 type AppState = {
@@ -68,7 +72,10 @@ const idleCollab: CollabState = {
   error: null,
   netHint: null,
   udpPeerCount: 0,
-  tcpPeerCount: 0
+  tcpPeerCount: 0,
+  tcpPort: 0,
+  listenAddresses: [],
+  holdHost: false
 }
 
 export const useAppStore = create<AppState>((set) => ({

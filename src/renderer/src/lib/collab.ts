@@ -13,9 +13,11 @@ import {
 import { useAppStore, type TabInfo } from '../store'
 
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const saveInflight = new Map<string, Promise<boolean>>()
 const remoteManifests = new Map<string, { peerId: string; startedAt: number; files: FileOffer[] }>()
 const lastSyncKey = new Map<string, string>()
 let syncGen = 0
+let suppressDirty = 0
 
 function toUint8(data: ArrayBuffer | Uint8Array): Uint8Array {
   return data instanceof Uint8Array ? data : new Uint8Array(data)
@@ -24,6 +26,10 @@ function toUint8(data: ArrayBuffer | Uint8Array): Uint8Array {
 export function isCollabActive(): boolean {
   const { status } = useAppStore.getState().collab
   return status === 'hosting' || status === 'joined'
+}
+
+export function isTabSaving(tabId: string): boolean {
+  return saveTimers.has(tabId) || saveInflight.has(tabId)
 }
 
 function localOffers(): FileOffer[] {
@@ -56,13 +62,83 @@ export function scheduleAutosave(tabId: string): void {
   saveTimers.set(
     tabId,
     setTimeout(() => {
-      void window.coterea.fs.write(tab.path!, getText(tabId), tab.encoding)
-      useAppStore.getState().setTabs((tabs) => tabs.map((t) => (t.id === tabId ? { ...t, isDirty: false } : t)))
+      void persistTab(tabId)
     }, AUTOSAVE_MS)
   )
 }
 
+export async function persistTab(tabId: string): Promise<boolean> {
+  const prev = saveTimers.get(tabId)
+  if (prev) {
+    clearTimeout(prev)
+    saveTimers.delete(tabId)
+  }
+  const inflight = saveInflight.get(tabId)
+  if (inflight) {
+    const ok = await inflight
+    if (saveTimers.has(tabId)) return persistTab(tabId)
+    return ok
+  }
+  const tab = useAppStore.getState().tabs.find((t) => t.id === tabId)
+  if (!tab?.path) return true
+  let settle: (ok: boolean) => void = () => undefined
+  const run = new Promise<boolean>((resolve) => {
+    settle = resolve
+  })
+  saveInflight.set(tabId, run)
+  void (async () => {
+    try {
+      const live = useAppStore.getState().tabs.find((t) => t.id === tabId)
+      if (!live?.path) {
+        settle(true)
+        return
+      }
+      const disk = await window.coterea.fs.peek(live.path, live.encoding)
+      const next = getText(tabId)
+      if (disk != null && disk.replace(/\r\n/g, '\n').replace(/\r/g, '\n') === next.replace(/\r\n/g, '\n').replace(/\r/g, '\n')) {
+        useAppStore.getState().setTabs((tabs) =>
+          tabs.map((t) => (t.id === tabId ? { ...t, isDirty: false, saveError: null } : t))
+        )
+        settle(true)
+        return
+      }
+      await window.coterea.fs.write(live.path, next, live.encoding)
+      useAppStore.getState().setTabs((tabs) =>
+        tabs.map((t) => (t.id === tabId ? { ...t, isDirty: false, saveError: null } : t))
+      )
+      settle(true)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      useAppStore.getState().setTabs((tabs) =>
+        tabs.map((t) => (t.id === tabId ? { ...t, saveError: message } : t))
+      )
+      settle(false)
+    } finally {
+      saveInflight.delete(tabId)
+    }
+  })()
+  const ok = await run
+  if (ok && saveTimers.has(tabId)) return persistTab(tabId)
+  return ok
+}
+
+export async function flushPendingSaves(tabIds?: string[]): Promise<boolean> {
+  const ids = tabIds ?? [...new Set([...saveTimers.keys(), ...saveInflight.keys()])]
+  const results = await Promise.all(ids.map((id) => persistTab(id)))
+  return results.every(Boolean)
+}
+
+export function withSuppressDirty(fn: () => void): void {
+  suppressDirty += 1
+  try {
+    fn()
+  } finally {
+    suppressDirty -= 1
+  }
+}
+
 export function markDirty(tabId: string): void {
+  if (suppressDirty > 0) return
   useAppStore.getState().setTabs((tabs) =>
     tabs.map((t) => (t.id === tabId && !t.isDirty ? { ...t, isDirty: true } : t))
   )
@@ -156,8 +232,10 @@ function adoptCanonical(tab: TabInfo, canonicalId: string): TabInfo {
 function exchangeDoc(tab: TabInfo, keys: string[], isOriginator: boolean): void {
   if (isOriginator) {
     window.coterea.collab.send({ type: 'file-canonical', keys, docId: tab.id })
+    sendFullState(tab.id)
+    return
   }
-  sendFullState(tab.id)
+  window.coterea.collab.send({ type: 'yjs-sync-request', docId: tab.id })
 }
 
 function identityHint(
@@ -251,7 +329,7 @@ export function handleCollabFrame(msg: Record<string, unknown>, binary: ArrayBuf
     applyYjs(docId, toUint8(binary))
     markDirty(docId)
   } else if (type === 'yjs-sync' && docId) {
-    stashSync(docId, toUint8(binary))
+    withSuppressDirty(() => stashSync(docId, toUint8(binary)))
     markDirty(docId)
   } else if (type === 'yjs-sync-request' && docId) {
     sendFullState(docId)
@@ -304,8 +382,8 @@ export function handleCollabFrame(msg: Record<string, unknown>, binary: ArrayBuf
           : []
     const tab = useAppStore.getState().tabs.find((t) => idsOverlap(fileIdsOf(t), incoming))
     if (tab && tab.id !== docId) {
-      const adopted = adoptCanonical(tab, docId)
-      sendFullState(adopted.id)
+      adoptCanonical(tab, docId)
+      window.coterea.collab.send({ type: 'yjs-sync-request', docId })
     }
   } else if (type === 'peer-list' && Array.isArray(msg.peers)) {
     useAppStore.getState().patchCollab({ peers: mergePeerPresence(msg.peers as PeerInfo[]) })
@@ -338,8 +416,8 @@ function connectionHint(
   if (status === 'solo' && udpPeerCount > 0) {
     return 'LAN上の相手を検出しました。接続を準備しています…'
   }
-  if (status === 'hosting' && tcpPeerCount === 0 && udpPeerCount > 0) {
-    return 'ハブとして待機中です。相手の参加を待っています…'
+  if (status === 'hosting' && tcpPeerCount === 0) {
+    return 'ハブとして待機中です。相手の参加を待っています。UDP が届かない場合は待ち受けアドレスを伝えてください。'
   }
   return null
 }
@@ -360,6 +438,9 @@ export function attachCollabListeners(): () => void {
       error: connectError,
       udpPeerCount,
       tcpPeerCount,
+      tcpPort: payload.tcpPort ?? 0,
+      listenAddresses: payload.listenAddresses ?? [],
+      holdHost: payload.holdHost === true,
       netHint: connectionHint(
         payload.status,
         udpPeerCount,
@@ -393,6 +474,48 @@ export async function enableCollab(): Promise<void> {
   const { displayName } = useAppStore.getState()
   const result = await window.coterea.collab.enable(displayName)
   useAppStore.getState().patchCollab({ localPeerId: result.localPeerId, status: 'solo', role: 'solo' })
+}
+
+export function parseJoinEndpoint(raw: string): { host: string; port: number } | null {
+  const s = raw.trim()
+  const v6 = s.match(/^\[([^\]]+)\]:(\d+)$/)
+  if (v6) {
+    const port = Number(v6[2])
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return null
+    return { host: v6[1], port }
+  }
+  const idx = s.lastIndexOf(':')
+  if (idx <= 0) return null
+  const host = s.slice(0, idx).trim()
+  const port = Number(s.slice(idx + 1))
+  if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null
+  return { host, port }
+}
+
+export async function startManualHost(): Promise<void> {
+  const result = await window.coterea.collab.startHost()
+  if (!result.ok) {
+    useAppStore.getState().patchCollab({ error: result.error, netHint: result.error })
+  }
+}
+
+export async function joinManual(raw: string): Promise<void> {
+  const parsed = parseJoinEndpoint(raw)
+  if (!parsed) {
+    useAppStore.getState().patchCollab({
+      error: 'host:port の形式で入力してください（例: 192.168.1.10:51234）',
+      netHint: 'host:port の形式で入力してください（例: 192.168.1.10:51234）'
+    })
+    return
+  }
+  const result = await window.coterea.collab.join(parsed.host, parsed.port)
+  if (!result.ok) {
+    useAppStore.getState().patchCollab({ error: result.error, netHint: result.error })
+  }
+}
+
+export async function leaveManualSession(): Promise<void> {
+  await window.coterea.collab.leave()
 }
 
 export function announceNewDoc(_tab: TabInfo): void {

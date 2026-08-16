@@ -77,6 +77,13 @@ export interface SaveResult {
   path: string | null
 }
 
+export interface WriteFileResult {
+  mtimeMs: number
+  size: number
+}
+
+export type ExternalChangeDecision = 'reload' | 'ignore'
+
 export type CollabStatus = 'solo' | 'hosting' | 'connecting' | 'joined' | 'error'
 
 export type MainToRenderer =

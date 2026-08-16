@@ -5,7 +5,7 @@ import { StatusBar } from './components/StatusBar'
 import { TabBar } from './components/TabBar'
 import { TitleBar } from './components/TitleBar'
 import { attachCollabListeners, enableCollab } from './lib/collab'
-import { closeTab, createUntitled, cycleMdView, handleAppClose, openDialog, openPaths, openPathsFromShell, saveActive, setMdView, toggleCollabPane } from './lib/actions'
+import { closeTab, createUntitled, cycleMdView, handleAppClose, openDialog, openPaths, openPathsFromShell, saveActive, setMdView, toggleCollabPane, attachFileWatch } from './lib/actions'
 import { getTabDoc, setLocalUser } from './lib/docs'
 import { applyUiTheme } from './lib/monacoEnv'
 import { getActiveEditor } from './lib/editorHandle'
@@ -23,6 +23,7 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     const offCollab = attachCollabListeners()
+    const offWatch = attachFileWatch()
     const offOpenFiles = window.coterea.app.onOpenFiles((paths) => {
       void openPathsFromShell(paths)
     })
@@ -86,6 +87,7 @@ export function App(): React.JSX.Element {
     })
     return () => {
       offCollab()
+      offWatch()
       offMenu()
       offClose()
       offOpenFiles()

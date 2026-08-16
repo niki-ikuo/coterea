@@ -789,9 +789,39 @@ button:disabled {
 }
 
 .invite code {
-  font-size: 20px;
-  letter-spacing: 0.18em;
+  font-size: 13px;
+  letter-spacing: 0.02em;
   color: var(--accent);
+}
+
+.join-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.join-form input {
+  border: 1px solid var(--line);
+  background: var(--bg-3);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.join-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.listen-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .peer-list {

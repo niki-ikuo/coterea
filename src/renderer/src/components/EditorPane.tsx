@@ -41,7 +41,12 @@ export function EditorPane({ tabId }: Props): React.JSX.Element {
       smoothScrolling: true,
       cursorBlinking: 'smooth',
       renderLineHighlight: 'line',
-      scrollbar: { verticalScrollbarSize: 10 }
+      scrollbar: { verticalScrollbarSize: 10 },
+      unicodeHighlight: {
+        invisibleCharacters: false,
+        ambiguousCharacters: false,
+        nonBasicASCII: false
+      }
     })
     editorRef.current = editor
     setActiveEditor(editor)

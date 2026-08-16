@@ -1,4 +1,13 @@
-import type { AboutInfo, AppSettings, DocMeta, PeerInfo, ReadFileResult, SaveResult } from './types'
+import type {
+  AboutInfo,
+  AppSettings,
+  DocMeta,
+  ExternalChangeDecision,
+  PeerInfo,
+  ReadFileResult,
+  SaveResult,
+  WriteFileResult
+} from './types'
 import type { EncodingId } from './encoding'
 
 export interface CotereaApi {
@@ -11,9 +20,14 @@ export interface CotereaApi {
     open: () => Promise<string[]>
     read: (filePath: string, encoding?: EncodingId) => Promise<ReadFileResult | null>
     identity: (filePath: string) => Promise<string[]>
-    write: (filePath: string, content: string, encoding?: EncodingId) => Promise<void>
+    peek: (filePath: string, encoding?: EncodingId) => Promise<string | null>
+    write: (filePath: string, content: string, encoding?: EncodingId) => Promise<WriteFileResult>
     saveAs: (suggestedName?: string) => Promise<SaveResult>
     confirmUnsaved: (names: string[]) => Promise<'save' | 'discard' | 'cancel'>
+    confirmExternalChange: (filePath: string) => Promise<ExternalChangeDecision>
+    watch: (filePath: string) => Promise<void>
+    unwatch: (filePath: string) => Promise<void>
+    onChanged: (cb: (payload: { path: string; mtimeMs: number; size: number }) => void) => () => void
   }
   recent: {
     get: () => Promise<string[]>
@@ -22,6 +36,9 @@ export interface CotereaApi {
     enable: (displayName: string) => Promise<{ localPeerId: string }>
     setDisplayName: (displayName: string) => Promise<void>
     setDocs: (docs: DocMeta[]) => Promise<void>
+    startHost: () => Promise<{ ok: true; tcpPort: number } | { ok: false; error: string }>
+    join: (host: string, port: number) => Promise<{ ok: true } | { ok: false; error: string }>
+    leave: () => Promise<void>
     send: (msg: Record<string, unknown>, binary?: ArrayBuffer) => void
     onState: (
       cb: (payload: {
@@ -35,6 +52,9 @@ export interface CotereaApi {
         tcpPeerCount?: number
         connectError?: string | null
         netHint?: string | null
+        tcpPort?: number
+        listenAddresses?: string[]
+        holdHost?: boolean
       }) => void
     ) => () => void
     onPeers: (cb: (payload: { peers: PeerInfo[] }) => void) => () => void

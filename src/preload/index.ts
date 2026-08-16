@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AboutInfo, AppSettings, DocMeta, ReadFileResult, SaveResult } from '../shared/types'
+import type { AboutInfo, AppSettings, DocMeta, ReadFileResult, SaveResult, WriteFileResult } from '../shared/types'
 import type { EncodingId } from '../shared/encoding'
 
 const api = {
@@ -17,11 +17,25 @@ const api = {
     read: (filePath: string, encoding?: EncodingId): Promise<ReadFileResult | null> =>
       ipcRenderer.invoke('fs:read', filePath, encoding),
     identity: (filePath: string): Promise<string[]> => ipcRenderer.invoke('fs:identity', filePath),
-    write: (filePath: string, content: string, encoding?: EncodingId): Promise<void> =>
+    peek: (filePath: string, encoding?: EncodingId): Promise<string | null> =>
+      ipcRenderer.invoke('fs:peek', filePath, encoding),
+    write: (filePath: string, content: string, encoding?: EncodingId): Promise<WriteFileResult> =>
       ipcRenderer.invoke('fs:write', filePath, content, encoding),
     saveAs: (suggestedName?: string): Promise<SaveResult> => ipcRenderer.invoke('fs:saveAs', suggestedName),
     confirmUnsaved: (names: string[]): Promise<'save' | 'discard' | 'cancel'> =>
-      ipcRenderer.invoke('fs:confirmUnsaved', names)
+      ipcRenderer.invoke('fs:confirmUnsaved', names),
+    confirmExternalChange: (filePath: string): Promise<'reload' | 'ignore'> =>
+      ipcRenderer.invoke('fs:confirmExternalChange', filePath),
+    watch: (filePath: string): Promise<void> => ipcRenderer.invoke('fs:watch', filePath),
+    unwatch: (filePath: string): Promise<void> => ipcRenderer.invoke('fs:unwatch', filePath),
+    onChanged: (cb: (payload: { path: string; mtimeMs: number; size: number }) => void) => {
+      const listener = (
+        _e: Electron.IpcRendererEvent,
+        payload: { path: string; mtimeMs: number; size: number }
+      ): void => cb(payload)
+      ipcRenderer.on('fs:changed', listener)
+      return () => ipcRenderer.removeListener('fs:changed', listener)
+    }
   },
   recent: {
     get: (): Promise<string[]> => ipcRenderer.invoke('recent:get')
@@ -30,6 +44,9 @@ const api = {
     enable: (displayName: string) => ipcRenderer.invoke('collab:enable', displayName),
     setDisplayName: (displayName: string) => ipcRenderer.invoke('collab:setDisplayName', displayName),
     setDocs: (docs: DocMeta[]) => ipcRenderer.invoke('collab:setDocs', docs),
+    startHost: () => ipcRenderer.invoke('collab:startHost'),
+    join: (host: string, port: number) => ipcRenderer.invoke('collab:join', host, port),
+    leave: () => ipcRenderer.invoke('collab:leave'),
     send: (msg: Record<string, unknown>, binary?: ArrayBuffer) => ipcRenderer.send('collab:send', msg, binary),
     onState: (cb: (payload: unknown) => void) => {
       const listener = (_e: Electron.IpcRendererEvent, payload: unknown): void => cb(payload)

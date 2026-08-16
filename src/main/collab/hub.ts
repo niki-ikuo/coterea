@@ -1,5 +1,6 @@
 import { createServer, createConnection, type Server, type Socket } from 'net'
 import { randomUUID } from 'crypto'
+import { networkInterfaces } from 'os'
 import { BrowserWindow } from 'electron'
 import { FrameReader, encodeFrame, type ControlMessage } from './frame'
 import { LanDiscovery, electHub, type Presence } from './discovery'
@@ -29,6 +30,17 @@ function normalizeHost(address?: string): string {
   return address
 }
 
+function ipv4Addresses(): string[] {
+  const out: string[] = []
+  for (const list of Object.values(networkInterfaces())) {
+    for (const info of list ?? []) {
+      if (info.internal) continue
+      if (info.family === 'IPv4' || (info.family as unknown) === 4) out.push(info.address)
+    }
+  }
+  return out.length > 0 ? out : ['127.0.0.1']
+}
+
 export class CollabHub {
   readonly localPeerId = randomUUID()
   private role: Role = 'solo'
@@ -52,6 +64,7 @@ export class CollabHub {
   private connectError: string | null = null
   private netHint: string | null = null
   private stuckSince: number | null = null
+  private holdHost = false
 
   attachWindow(win: BrowserWindow): void {
     this.win = win
@@ -101,10 +114,61 @@ export class CollabHub {
   }
 
   async leave(): Promise<void> {
-    await this.tearDownTcp()
+    this.holdHost = false
+    const was = this.role
     this.role = 'solo'
+    this.welcomed = false
+    this.hostId = null
+    await this.tearDownTcp()
     this.publishPresence()
+    if (was === 'host' || was === 'guest') {
+      this.sendToRenderer({ type: 'became-solo' }, Buffer.alloc(0))
+    }
     this.emitState()
+  }
+
+  async startHost(): Promise<{ ok: true; tcpPort: number } | { ok: false; error: string }> {
+    if (this.role === 'guest') {
+      return { ok: false, error: '参加中はハブになれません。先に切断してください。' }
+    }
+    this.holdHost = true
+    if (this.role !== 'host') await this.becomeHost()
+    if (this.role !== 'host' || this.tcpPort === 0) {
+      this.holdHost = false
+      return { ok: false, error: 'ハブを起動できませんでした。' }
+    }
+    this.emitState()
+    return { ok: true, tcpPort: this.tcpPort }
+  }
+
+  async joinManual(
+    host: string,
+    port: number
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (this.role === 'host') {
+      return { ok: false, error: 'ハブ中は他へ接続できません。先にハブを停止してください。' }
+    }
+    if (this.role === 'guest' || this.connecting) {
+      return { ok: false, error: 'すでに接続中です。' }
+    }
+    const address = normalizeHost(host)
+    if (!address || !Number.isInteger(port) || port < 1 || port > 65535) {
+      return { ok: false, error: 'アドレスまたはポートが不正です。' }
+    }
+    this.holdHost = false
+    await this.connectAsGuest({
+      magic: '',
+      type: 'presence',
+      peerId: `manual:${address}:${port}`,
+      displayName: address,
+      startedAt: 0,
+      role: 'host',
+      tcpPort: port,
+      hostId: null,
+      hostAddress: address
+    })
+    if (this.welcomed && this.hostSocket) return { ok: true }
+    return { ok: false, error: this.connectError ?? 'ハブへの接続に失敗しました。' }
   }
 
   dispose(): void {
@@ -125,7 +189,7 @@ export class CollabHub {
 
     if (this.role === 'host') {
       this.updateStuckHint(others.length, this.clients.size)
-      if (this.clients.size === 0 && others.length === 0) {
+      if (this.clients.size === 0 && others.length === 0 && !this.holdHost) {
         void this.demoteToSolo()
       }
       return
@@ -282,6 +346,7 @@ export class CollabHub {
   }
 
   private async demoteToSolo(): Promise<void> {
+    this.holdHost = false
     await this.tearDownTcp()
     this.role = 'solo'
     this.hostId = null
@@ -419,7 +484,10 @@ export class CollabHub {
       udpPeerCount: others.length,
       tcpPeerCount: this.role === 'host' ? this.clients.size : this.welcomed && this.hostSocket ? 1 : 0,
       connectError: this.connectError,
-      netHint: this.netHint
+      netHint: this.netHint,
+      tcpPort: this.role === 'host' ? this.tcpPort : 0,
+      listenAddresses: this.role === 'host' ? ipv4Addresses() : [],
+      holdHost: this.holdHost
     })
     if (this.role === 'host') {
       this.broadcast({ type: 'peer-list', peers: this.collectPeers() }, undefined, null)
