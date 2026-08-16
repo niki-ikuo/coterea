@@ -1,6 +1,9 @@
 import { create } from 'zustand'
 import type { CollabStatus, PeerInfo } from '../../shared/types'
 import type { EncodingId } from '../../shared/encoding'
+import { DEFAULT_THEME, type ThemeId } from '../../shared/theme'
+
+export type MdView = 'edit' | 'split' | 'preview'
 
 export type TabInfo = {
   id: string
@@ -11,6 +14,9 @@ export type TabInfo = {
   isDirty: boolean
   encoding: EncodingId
   fileIds: string[]
+  mdView: MdView
+  mdSplitPct: number
+  mdScrollSync: boolean
 }
 
 export type CollabState = {
@@ -28,17 +34,19 @@ type AppState = {
   tabs: TabInfo[]
   activeTabId: string | null
   displayName: string
-  rightCollapsed: boolean
+  theme: ThemeId
+  collabPaneVisible: boolean
   line: number
   column: number
   joinOpen: boolean
   settingsOpen: boolean
   collab: CollabState
   setDisplayName: (name: string) => void
+  setTheme: (theme: ThemeId) => void
   setTabs: (tabs: TabInfo[] | ((prev: TabInfo[]) => TabInfo[])) => void
   setActiveTabId: (id: string | null) => void
   setCursor: (line: number, column: number) => void
-  setRightCollapsed: (v: boolean) => void
+  setCollabPaneVisible: (v: boolean) => void
   setJoinOpen: (v: boolean) => void
   setSettingsOpen: (v: boolean) => void
   patchCollab: (patch: Partial<CollabState>) => void
@@ -59,18 +67,20 @@ export const useAppStore = create<AppState>((set) => ({
   tabs: [],
   activeTabId: null,
   displayName: '',
-  rightCollapsed: false,
+  theme: DEFAULT_THEME,
+  collabPaneVisible: false,
   line: 1,
   column: 1,
   joinOpen: false,
   settingsOpen: false,
   collab: idleCollab,
   setDisplayName: (displayName) => set({ displayName }),
+  setTheme: (theme) => set({ theme }),
   setTabs: (tabs) =>
     set((s) => ({ tabs: typeof tabs === 'function' ? tabs(s.tabs) : tabs })),
   setActiveTabId: (activeTabId) => set({ activeTabId }),
   setCursor: (line, column) => set({ line, column }),
-  setRightCollapsed: (rightCollapsed) => set({ rightCollapsed }),
+  setCollabPaneVisible: (collabPaneVisible) => set({ collabPaneVisible }),
   setJoinOpen: (joinOpen) => set({ joinOpen }),
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
   patchCollab: (patch) => set((s) => ({ collab: { ...s.collab, ...patch } }))

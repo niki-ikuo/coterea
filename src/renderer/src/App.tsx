@@ -2,18 +2,20 @@ import { useEffect, useRef, useState } from 'react'
 import { EditorPane } from './components/EditorPane'
 import { RightPane, SettingsModal } from './components/RightPane'
 import { StatusBar } from './components/StatusBar'
+import { PresenceBadge } from './components/PresenceBadge'
 import { TabBar } from './components/TabBar'
 import { attachCollabListeners, enableCollab } from './lib/collab'
-import { closeTab, createUntitled, handleAppClose, openDialog, openPaths, saveActive } from './lib/actions'
+import { closeTab, createUntitled, cycleMdView, handleAppClose, openDialog, openPaths, openPathsFromShell, saveActive, setMdView, toggleCollabPane } from './lib/actions'
 import { getTabDoc, setLocalUser } from './lib/docs'
+import { applyUiTheme } from './lib/monacoEnv'
 import { getActiveEditor } from './lib/editorHandle'
 import { useAppStore } from './store'
+import { parseTheme } from '../../shared/theme'
 
 export function App(): React.JSX.Element {
   const tabs = useAppStore((s) => s.tabs)
   const activeTabId = useAppStore((s) => s.activeTabId)
-  const rightCollapsed = useAppStore((s) => s.rightCollapsed)
-  const setRightCollapsed = useAppStore((s) => s.setRightCollapsed)
+  const collabPaneVisible = useAppStore((s) => s.collabPaneVisible)
   const displayName = useAppStore((s) => s.displayName)
   const localColor = useAppStore((s) => s.collab.localColor)
   const [rightWidth, setRightWidth] = useState(35)
@@ -21,10 +23,19 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     const offCollab = attachCollabListeners()
+    const offOpenFiles = window.coterea.app.onOpenFiles((paths) => {
+      void openPathsFromShell(paths)
+    })
     void (async () => {
       const s = await window.coterea.settings.get()
       useAppStore.getState().setDisplayName(s.displayName)
+      useAppStore.getState().setCollabPaneVisible(s.collabPaneVisible === true)
+      const theme = parseTheme(s.theme)
+      useAppStore.getState().setTheme(theme)
+      applyUiTheme(theme)
       await enableCollab()
+      const launchFiles = await window.coterea.app.consumeLaunchFiles()
+      if (launchFiles.length > 0) await openPathsFromShell(launchFiles)
       if (useAppStore.getState().tabs.length === 0) createUntitled()
     })()
     const offMenu = window.coterea.app.onMenu((payload) => {
@@ -45,8 +56,24 @@ export function App(): React.JSX.Element {
       if (action === 'replace') {
         getActiveEditor()?.trigger('menu', 'editor.action.startFindReplaceAction', null)
       }
-      if (action === 'toggle-right') setRightCollapsed(!useAppStore.getState().rightCollapsed)
+      if (action === 'toggle-right') void toggleCollabPane()
       if (action === 'settings') useAppStore.getState().setSettingsOpen(true)
+      if (action === 'theme' && extra) {
+        const theme = parseTheme(extra)
+        void window.coterea.settings.set({ theme }).then((next) => {
+          const applied = parseTheme(next.theme)
+          useAppStore.getState().setTheme(applied)
+          applyUiTheme(applied)
+        })
+      }
+      if (action === 'md-view' && extra) {
+        const id = useAppStore.getState().activeTabId
+        if (id && (extra === 'edit' || extra === 'split' || extra === 'preview')) setMdView(id, extra)
+      }
+      if (action === 'md-view-cycle') {
+        const id = useAppStore.getState().activeTabId
+        if (id) cycleMdView(id)
+      }
     })
     const offClose = window.coterea.app.onCloseRequest(() => {
       void handleAppClose()
@@ -55,8 +82,9 @@ export function App(): React.JSX.Element {
       offCollab()
       offMenu()
       offClose()
+      offOpenFiles()
     }
-  }, [setRightCollapsed])
+  }, [])
 
   useEffect(() => {
     if (displayName) setLocalUser({ name: displayName, color: localColor })
@@ -82,11 +110,14 @@ export function App(): React.JSX.Element {
   return (
     <div className="app">
       <div className="brandbar">
-        <span className="logo">COTEREA</span>
-        <span className="tagline">人と AI が、ともに書く。</span>
+        <div className="brandbar-left">
+          <span className="logo">COTEREA</span>
+          <span className="tagline">人と AI が、ともに書く。</span>
+        </div>
+        <PresenceBadge />
       </div>
       <div className="workspace">
-        <div className="left-pane" style={{ width: rightCollapsed ? '100%' : `${100 - rightWidth}%` }}>
+        <div className="left-pane" style={{ width: collabPaneVisible ? `${100 - rightWidth}%` : '100%' }}>
           <TabBar />
           <div className="editor-wrap">
             {activeTabId && tabs.some((t) => t.id === activeTabId) ? (
@@ -96,7 +127,7 @@ export function App(): React.JSX.Element {
             )}
           </div>
         </div>
-        {!rightCollapsed && (
+        {collabPaneVisible && (
           <>
             <div
               className="splitter"

@@ -3,6 +3,7 @@ import { earlierPeer, fileIdsOf, idsOverlap, offerKeys, type FileOffer } from '.
 import {
   applyAwarenessBytes,
   applyYjs,
+  clearRemoteAwareness,
   createTabDoc,
   disposeTabDoc,
   encodeDoc,
@@ -75,15 +76,56 @@ export function sendFullState(docId: string): void {
   )
 }
 
+function mergePeerPresence(incoming: PeerInfo[]): PeerInfo[] {
+  if (!isCollabActive()) {
+    return incoming.map((peer) => ({ ...peer, docId: null, docTitle: null }))
+  }
+  const prev = useAppStore.getState().collab.peers
+  const live = new Set(incoming.map((peer) => peer.id))
+  return incoming.map((peer) => {
+    const old = prev.find((item) => item.id === peer.id)
+    return {
+      ...peer,
+      docId: peer.docId ?? old?.docId ?? null,
+      docTitle: peer.docTitle ?? old?.docTitle ?? null
+    }
+  }).filter((peer) => live.has(peer.id))
+}
+
+export function editorsOnActiveFile(): PeerInfo[] {
+  const { collab, activeTabId, displayName } = useAppStore.getState()
+  const me: PeerInfo = {
+    id: collab.localPeerId ?? 'local',
+    displayName: displayName || '自分',
+    color: collab.localColor,
+    docId: activeTabId,
+    docTitle: null
+  }
+  if (!isCollabActive() || !activeTabId) return [me]
+  const remotes = collab.peers.filter(
+    (peer) => peer.id !== collab.localPeerId && peer.docId === activeTabId
+  )
+  return [me, ...remotes]
+}
+
 export function sendPresence(): void {
   if (!isCollabActive()) return
-  const { activeTabId, tabs } = useAppStore.getState()
+  const { activeTabId, tabs, collab } = useAppStore.getState()
   const tab = tabs.find((t) => t.id === activeTabId)
   window.coterea.collab.send({
     type: 'presence',
     docId: tab?.id ?? null,
     docTitle: tab?.title ?? null
   })
+  if (collab.localPeerId) {
+    useAppStore.getState().patchCollab({
+      peers: collab.peers.map((peer) =>
+        peer.id === collab.localPeerId
+          ? { ...peer, docId: tab?.id ?? null, docTitle: tab?.title ?? null }
+          : peer
+      )
+    })
+  }
 }
 
 function adoptCanonical(tab: TabInfo, canonicalId: string): void {
@@ -155,10 +197,23 @@ export function handleCollabFrame(msg: Record<string, unknown>, binary: ArrayBuf
   } else if (type === 'host-lost' || type === 'became-solo') {
     remoteManifests.clear()
     sentCanonical.clear()
-    useAppStore.getState().patchCollab({ sharedKeys: [] })
+    clearRemoteAwareness()
+    const { collab } = useAppStore.getState()
+    useAppStore.getState().patchCollab({
+      sharedKeys: [],
+      peers: collab.peers
+        .filter((peer) => peer.id === collab.localPeerId)
+        .map((peer) => ({ ...peer, docId: null, docTitle: null }))
+    })
   } else if (type === 'peer-left') {
     const left = typeof msg.peerId === 'string' ? msg.peerId : null
     if (left) remoteManifests.delete(left)
+    clearRemoteAwareness()
+    if (left) {
+      useAppStore.getState().patchCollab({
+        peers: useAppStore.getState().collab.peers.filter((peer) => peer.id !== left)
+      })
+    }
     reconcileFileSessions()
   } else if (type === 'files-manifest' && Array.isArray(msg.files)) {
     const peerId = typeof msg.peerId === 'string' ? msg.peerId : ''
@@ -181,7 +236,7 @@ export function handleCollabFrame(msg: Record<string, unknown>, binary: ArrayBuf
     const tab = useAppStore.getState().tabs.find((t) => idsOverlap(fileIdsOf(t), incoming))
     if (tab && tab.id !== docId) adoptCanonical(tab, docId)
   } else if (type === 'peer-list' && Array.isArray(msg.peers)) {
-    useAppStore.getState().patchCollab({ peers: msg.peers as PeerInfo[] })
+    useAppStore.getState().patchCollab({ peers: mergePeerPresence(msg.peers as PeerInfo[]) })
   } else if (type === 'presence') {
     const peerId = typeof msg.peerId === 'string' ? msg.peerId : null
     useAppStore.getState().patchCollab({
@@ -210,14 +265,14 @@ export function attachCollabListeners(): () => void {
       localColor: payload.localColor,
       error: null,
       ...(typeof payload.startedAt === 'number' ? { startedAt: payload.startedAt } : {}),
-      ...(payload.peers ? { peers: payload.peers } : {})
+      ...(payload.peers ? { peers: mergePeerPresence(payload.peers) } : {})
     })
   })
   const offPeers = window.coterea.collab.onPeers(({ peers }) => {
     const local = useAppStore.getState().collab.localPeerId
     const mine = peers.find((p) => p.id === local)
     useAppStore.getState().patchCollab({
-      peers,
+      peers: mergePeerPresence(peers),
       localColor: mine?.color ?? useAppStore.getState().collab.localColor
     })
   })

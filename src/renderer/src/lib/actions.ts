@@ -1,12 +1,17 @@
-import { languageFromPath, titleFromPath } from './monacoEnv'
+import { languageFromPath, titleFromPath, isMarkdownLanguage } from './monacoEnv'
 import { createTabDoc, disposeTabDoc, getText, languageOf, replaceText, setLanguage } from './docs'
 import { announceNewDoc, isCollabActive, publishManifest } from './collab'
-import { useAppStore, type TabInfo } from '../store'
+import { useAppStore, type MdView, type TabInfo } from '../store'
 import { DEFAULT_ENCODING, type EncodingId } from '../../../shared/encoding'
 import { idsOverlap } from '../../../shared/fileSession'
 
 function newId(): string {
   return crypto.randomUUID()
+}
+
+function mdViewFor(language: string, current?: MdView): MdView {
+  if (!isMarkdownLanguage(language)) return 'edit'
+  return current && current !== 'edit' ? current : 'split'
 }
 
 export function createUntitled(): TabInfo {
@@ -20,13 +25,38 @@ export function createUntitled(): TabInfo {
     language: 'plaintext',
     isDirty: false,
     encoding: DEFAULT_ENCODING,
-    fileIds: []
+    fileIds: [],
+    mdView: 'edit',
+    mdSplitPct: 50,
+    mdScrollSync: true
   }
   createTabDoc(id, '', 'plaintext', { name: displayName, color: collab.localColor })
   useAppStore.getState().setTabs((tabs) => [...tabs, tab])
   useAppStore.getState().setActiveTabId(id)
   announceNewDoc(tab)
   return tab
+}
+
+export async function toggleCollabPane(): Promise<void> {
+  const next = !useAppStore.getState().collabPaneVisible
+  useAppStore.getState().setCollabPaneVisible(next)
+  await window.coterea.settings.set({ collabPaneVisible: next })
+}
+
+export async function setCollabPaneVisible(visible: boolean): Promise<void> {
+  useAppStore.getState().setCollabPaneVisible(visible)
+  await window.coterea.settings.set({ collabPaneVisible: visible })
+}
+
+export async function openPathsFromShell(paths: string[]): Promise<void> {
+  await openPaths(paths)
+  const opened = useAppStore.getState().tabs.some((t) => t.path)
+  if (!opened) return
+  const blanks = useAppStore.getState().tabs.filter((t) => !t.path && !t.isDirty)
+  for (const blank of blanks) {
+    if (useAppStore.getState().tabs.length <= 1) break
+    await closeTab(blank.id)
+  }
 }
 
 export async function openPaths(paths: string[]): Promise<void> {
@@ -56,7 +86,10 @@ export async function openPaths(paths: string[]): Promise<void> {
       language,
       isDirty: false,
       encoding: read.encoding,
-      fileIds: read.fileIds
+      fileIds: read.fileIds,
+      mdView: mdViewFor(language),
+      mdSplitPct: 50,
+      mdScrollSync: true
     }
     useAppStore.getState().setTabs((prev) => [...prev, tab])
     useAppStore.getState().setActiveTabId(id)
@@ -85,7 +118,16 @@ export async function saveTab(tabId: string, saveAs = false): Promise<boolean> {
   useAppStore.getState().setTabs((tabs) =>
     tabs.map((t) =>
       t.id === tabId
-        ? { ...t, path, hostPath: t.hostPath ?? path, title: titleFromPath(path), language, isDirty: false, fileIds }
+        ? {
+            ...t,
+            path,
+            hostPath: t.hostPath ?? path,
+            title: titleFromPath(path),
+            language,
+            isDirty: false,
+            fileIds,
+            mdView: mdViewFor(language, t.mdView)
+          }
         : t
     )
   )
@@ -138,6 +180,35 @@ export function setTabEncoding(tabId: string, encoding: EncodingId): void {
   useAppStore.getState().setTabs((tabs) =>
     tabs.map((t) => (t.id === tabId ? { ...t, encoding } : t))
   )
+}
+
+export function setMdView(tabId: string, mdView: MdView): void {
+  useAppStore.getState().setTabs((tabs) =>
+    tabs.map((t) =>
+      t.id === tabId && isMarkdownLanguage(t.language) ? { ...t, mdView } : t
+    )
+  )
+}
+
+export function setMdScrollSync(tabId: string, mdScrollSync: boolean): void {
+  useAppStore.getState().setTabs((tabs) =>
+    tabs.map((t) => (t.id === tabId ? { ...t, mdScrollSync } : t))
+  )
+}
+
+export function setMdSplitPct(tabId: string, mdSplitPct: number): void {
+  const clamped = Math.min(75, Math.max(25, mdSplitPct))
+  useAppStore.getState().setTabs((tabs) =>
+    tabs.map((t) => (t.id === tabId ? { ...t, mdSplitPct: clamped } : t))
+  )
+}
+
+export function cycleMdView(tabId: string): void {
+  const tab = useAppStore.getState().tabs.find((t) => t.id === tabId)
+  if (!tab || !isMarkdownLanguage(tab.language)) return
+  const order: MdView[] = ['edit', 'split', 'preview']
+  const next = order[(order.indexOf(tab.mdView) + 1) % order.length]
+  setMdView(tabId, next)
 }
 
 export async function reopenWithEncoding(tabId: string, encoding: EncodingId): Promise<void> {

@@ -1,11 +1,18 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAppStore } from '../store'
+import { setCollabPaneVisible } from '../lib/actions'
+import { applyUiTheme } from '../lib/monacoEnv'
+import { THEMES, parseTheme, type ThemeId } from '../../../shared/theme'
 
 export function RightPane(): React.JSX.Element {
   const displayName = useAppStore((s) => s.displayName)
   const collab = useAppStore((s) => s.collab)
   const setSettingsOpen = useAppStore((s) => s.setSettingsOpen)
-  const count = Math.max(collab.peers.length, 1)
+  const connected = collab.status === 'hosting' || collab.status === 'joined'
+  const participants = connected
+    ? collab.peers
+    : collab.peers.filter((peer) => peer.id === collab.localPeerId)
+  const count = Math.max(participants.length, 1)
 
   return (
     <aside className="right-pane">
@@ -14,6 +21,9 @@ export function RightPane(): React.JSX.Element {
           <div className="pane-kicker">共同編集</div>
           <h2>セッション</h2>
         </div>
+        <button type="button" className="pane-hide" onClick={() => void setCollabPaneVisible(false)}>
+          非表示
+        </button>
       </header>
 
       <section className="pane-card">
@@ -53,8 +63,8 @@ export function RightPane(): React.JSX.Element {
       <section className="pane-card grow">
         <div className="label">参加者</div>
         <ul className="peer-list">
-          {collab.peers.length === 0 && <li className="muted">まだ誰もいません</li>}
-          {collab.peers.map((peer) => (
+          {participants.length === 0 && <li className="muted">まだ誰もいません</li>}
+          {participants.map((peer) => (
             <li key={peer.id}>
               <span className="swatch" style={{ background: peer.color }} />
               <div>
@@ -71,7 +81,7 @@ export function RightPane(): React.JSX.Element {
 
       <div className="pane-actions">
         <p className="hint">
-          同一LANのCotereaは自動でつながります。ハブは先にいた人です。切れたら残りの最古参が引き継ぎます。同期は同じファイル名のタブだけです（無題は共有しません）。
+          同一LANのCotereaは自動でつながります。ハブは先にいた人です。切れたら残りの最古参が引き継ぎます。同期は同じ実体のファイルだけです（無題は共有しません）。
         </p>
       </div>
     </aside>
@@ -82,7 +92,14 @@ export function SettingsModal(): React.JSX.Element | null {
   const open = useAppStore((s) => s.settingsOpen)
   const setSettingsOpen = useAppStore((s) => s.setSettingsOpen)
   const displayName = useAppStore((s) => s.displayName)
+  const theme = useAppStore((s) => s.theme)
   const [name, setName] = useState(displayName)
+  const [themeDraft, setThemeDraft] = useState<ThemeId>(theme)
+  useEffect(() => {
+    if (!open) return
+    setName(displayName)
+    setThemeDraft(theme)
+  }, [open, displayName, theme])
   if (!open) return null
   return (
     <div className="modal-backdrop" onClick={() => setSettingsOpen(false)}>
@@ -93,8 +110,11 @@ export function SettingsModal(): React.JSX.Element | null {
           e.preventDefault()
           const trimmed = name.trim()
           if (!trimmed) return
-          void window.coterea.settings.set({ displayName: trimmed }).then((s) => {
+          void window.coterea.settings.set({ displayName: trimmed, theme: themeDraft }).then((s) => {
             useAppStore.getState().setDisplayName(s.displayName)
+            const applied = parseTheme(s.theme)
+            useAppStore.getState().setTheme(applied)
+            applyUiTheme(applied)
             void window.coterea.collab.setDisplayName(s.displayName)
             setSettingsOpen(false)
           })
@@ -104,6 +124,16 @@ export function SettingsModal(): React.JSX.Element | null {
         <label>
           表示名
           <input value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label>
+          テーマ
+          <select value={themeDraft} onChange={(e) => setThemeDraft(parseTheme(e.target.value))}>
+            {THEMES.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
         </label>
         <div className="modal-actions">
           <button type="button" onClick={() => setSettingsOpen(false)}>

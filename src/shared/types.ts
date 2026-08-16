@@ -39,6 +39,8 @@ export interface DocMeta {
 
 export interface AppSettings {
   displayName: string
+  theme: import('./theme').ThemeId
+  collabPaneVisible: boolean
 }
 
 export interface OpenDialogResult {

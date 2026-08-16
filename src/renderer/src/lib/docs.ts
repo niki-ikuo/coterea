@@ -1,7 +1,7 @@
 import * as monaco from 'monaco-editor'
 import * as Y from 'yjs'
 import { MonacoBinding } from 'y-monaco'
-import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate } from 'y-protocols/awareness'
+import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
 import { languageFromPath } from './monacoEnv'
 
 export type TabDoc = {
@@ -165,6 +165,14 @@ export function applyAwarenessBytes(id: string, update: Uint8Array): void {
 export function setLocalUser(user: { name: string; color: string }): void {
   for (const tab of docs.values()) {
     tab.awareness.setLocalStateField('user', user)
+  }
+}
+
+export function clearRemoteAwareness(): void {
+  for (const tab of docs.values()) {
+    const gone = [...tab.awareness.getStates().keys()].filter((id) => id !== tab.awareness.clientID)
+    if (gone.length > 0) removeAwarenessStates(tab.awareness, gone, 'local')
+    refreshRemoteCursorStyles(tab.awareness)
   }
 }
 

@@ -6,8 +6,43 @@ import { decodeBuffer, detectEncoding, encodeText } from './encoding'
 import { resolveFileIds } from './fileIdentity'
 
 const FILTERS = [
-  { name: 'テキスト', extensions: ['txt', 'md', 'markdown'] },
-  { name: 'コード', extensions: ['json', 'csv', 'html', 'css', 'js', 'ts', 'py'] },
+  { name: 'テキスト', extensions: ['txt', 'md', 'markdown', 'mdx'] },
+  {
+    name: 'コード',
+    extensions: [
+      'json',
+      'csv',
+      'html',
+      'htm',
+      'css',
+      'scss',
+      'js',
+      'jsx',
+      'ts',
+      'tsx',
+      'py',
+      'go',
+      'rs',
+      'java',
+      'c',
+      'h',
+      'cpp',
+      'cs',
+      'rb',
+      'php',
+      'kt',
+      'swift',
+      'sql',
+      'sh',
+      'ps1',
+      'yaml',
+      'yml',
+      'xml',
+      'lua',
+      'r',
+      'dart'
+    ]
+  },
   { name: 'すべてのファイル', extensions: ['*'] }
 ]
 

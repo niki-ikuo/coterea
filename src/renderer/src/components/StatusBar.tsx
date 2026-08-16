@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { encodingLabel, ENCODINGS, type EncodingId } from '../../../shared/encoding'
-import { reopenWithEncoding, setTabEncoding } from '../lib/actions'
+import { reopenWithEncoding, setTabEncoding, cycleMdView } from '../lib/actions'
+import { isMarkdownLanguage, languageLabel } from '../lib/monacoEnv'
 import { useAppStore } from '../store'
 
 export function StatusBar(): React.JSX.Element {
@@ -23,7 +24,12 @@ export function StatusBar(): React.JSX.Element {
       <span>
         行 {line} : 列 {column}
       </span>
-      <span>{tab?.language ?? 'plaintext'}</span>
+      <span>{languageLabel(tab?.language ?? 'plaintext')}</span>
+      {tab && isMarkdownLanguage(tab.language) && (
+        <button type="button" className="status-btn" onClick={() => cycleMdView(tab.id)}>
+          {tab.mdView === 'edit' ? 'MD 編集' : tab.mdView === 'split' ? 'MD 分割' : 'MD プレビュー'}
+        </button>
+      )}
       {tab ? <EncodingPicker tabId={tab.id} encoding={tab.encoding} hasPath={Boolean(tab.path)} /> : <span>UTF-8</span>}
       <span>共同編集: {collabLabel}</span>
       <span>AI: 未設定</span>

@@ -30,4 +30,5 @@ nsis:
   installerLanguages:
     - ja_JP
     - en_US
+  include: installer.nsh
 npmRebuild: false

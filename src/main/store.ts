@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { userInfo } from 'os'
 import type { AppSettings } from '../shared/types'
+import { DEFAULT_THEME, parseTheme } from '../shared/theme'
 
 const MAX_RECENT = 12
 
@@ -13,7 +14,7 @@ type Store = {
 
 function defaultStore(): Store {
   return {
-    settings: { displayName: userInfo().username || 'User' },
+    settings: { displayName: userInfo().username || 'User', theme: DEFAULT_THEME, collabPaneVisible: false },
     recentFiles: []
   }
 }
@@ -39,7 +40,12 @@ export class AppStore {
     await mkdir(this.dir(), { recursive: true })
     try {
       const raw = JSON.parse(await readFile(this.settingsPath(), 'utf8')) as Partial<AppSettings>
-      this.data.settings = { ...this.data.settings, ...raw }
+      this.data.settings = {
+        ...this.data.settings,
+        ...raw,
+        theme: parseTheme(raw.theme),
+        collabPaneVisible: raw.collabPaneVisible === true
+      }
     } catch {
       /* first run */
     }
@@ -58,7 +64,14 @@ export class AppStore {
 
   async setSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
     await this.load()
-    this.data.settings = { ...this.data.settings, ...patch }
+    this.data.settings = {
+      ...this.data.settings,
+      ...patch,
+      ...(patch.theme ? { theme: parseTheme(patch.theme) } : {}),
+      ...(typeof patch.collabPaneVisible === 'boolean'
+        ? { collabPaneVisible: patch.collabPaneVisible }
+        : {})
+    }
     await writeFile(this.settingsPath(), JSON.stringify(this.data.settings, null, 2), 'utf8')
     return this.getSettings()
   }

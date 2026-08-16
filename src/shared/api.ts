@@ -37,7 +37,10 @@ export interface CotereaApi {
   }
   app: {
     confirmClose: () => Promise<void>
+    openExternal: (url: string) => Promise<void>
     onMenu: (cb: (payload: { action: string; extra?: string }) => void) => () => void
     onCloseRequest: (cb: () => void) => () => void
+    consumeLaunchFiles: () => Promise<string[]>
+    onOpenFiles: (cb: (paths: string[]) => void) => () => void
   }
 }

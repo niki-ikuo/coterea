@@ -47,6 +47,7 @@ const api = {
   },
   app: {
     confirmClose: () => ipcRenderer.invoke('app:confirmClose'),
+    openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
     onMenu: (cb: (payload: { action: string; extra?: string }) => void) => {
       const listener = (_e: Electron.IpcRendererEvent, payload: { action: string; extra?: string }): void =>
         cb(payload)
@@ -57,6 +58,12 @@ const api = {
       const listener = (): void => cb()
       ipcRenderer.on('app:close-request', listener)
       return () => ipcRenderer.removeListener('app:close-request', listener)
+    },
+    consumeLaunchFiles: (): Promise<string[]> => ipcRenderer.invoke('app:consumeLaunchFiles'),
+    onOpenFiles: (cb: (paths: string[]) => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, paths: string[]): void => cb(paths)
+      ipcRenderer.on('app:open-files', listener)
+      return () => ipcRenderer.removeListener('app:open-files', listener)
     }
   }
 }
