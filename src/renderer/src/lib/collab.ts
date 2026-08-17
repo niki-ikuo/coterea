@@ -1,11 +1,11 @@
 import { AUTOSAVE_MS, REMOTE_SAVE_MS, type PeerInfo, type WriteFileResult } from '../../../shared/types'
 import { normalizeText } from '../../../shared/externalChange'
 import {
-  earlierPeer,
   fileIdsOf,
   idsOverlap,
   messageKeys,
   offerKeys,
+  electFileSaver as pickFileSaver,
   type FileOffer
 } from '../../../shared/fileSession'
 import { useAppStore, type TabInfo } from '../store'
@@ -77,12 +77,11 @@ function electFileSaver(tab: TabInfo): { peerId: string; startedAt: number } | n
   if (!isCollabActive()) return null
   const keys = fileIdsOf(tab)
   const remotes = matchingRemotes(keys)
-  if (keys.length === 0 || remotes.length === 0) return null
   const { collab } = useAppStore.getState()
-  const me = { peerId: collab.localPeerId ?? '', startedAt: collab.startedAt ?? Date.now() }
-  return remotes.reduce(
-    (best, cur) => (earlierPeer(cur, best) ? cur : best),
-    { ...me, docId: tab.id, keys, title: tab.title, language: tab.language }
+  return pickFileSaver(
+    { peerId: collab.localPeerId ?? '', startedAt: collab.startedAt ?? Date.now() },
+    remotes,
+    keys
   )
 }
 
@@ -466,18 +465,16 @@ function reconcileFileSessions(): void {
       const remotes = matchingRemotes(keys)
       if (remotes.length === 0) continue
       shared.push(tab.title)
-      const originator = remotes.reduce(
-        (best, cur) => (earlierPeer(cur, best) ? cur : best),
-        { peerId: me.peerId, startedAt: me.startedAt, docId: tab.id, keys, title: tab.title, language: tab.language }
-      )
+      const originator = pickFileSaver(me, remotes, keys) ?? me
+      const originatorDocId = remotes.find((remote) => remote.peerId === originator.peerId)?.docId
       const localSaver = originator.peerId === me.peerId
       fileSavers.push({
         title: tab.title,
         local: localSaver,
         name: localSaver ? 'このPC' : peerDisplayName(originator.peerId)
       })
-      if (!localSaver && originator.docId && originator.docId !== tab.id) {
-        tab = adoptCanonical(docs, tab, originator.docId)
+      if (!localSaver && originatorDocId && originatorDocId !== tab.id) {
+        tab = adoptCanonical(docs, tab, originatorDocId)
       }
       const remoteSig = remotes
         .map((r) => `${r.peerId}:${r.docId}`)

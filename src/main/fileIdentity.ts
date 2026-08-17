@@ -2,10 +2,15 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { hostname, networkInterfaces } from 'os'
 import { isAbsolute, resolve as resolvePath } from 'path'
+import {
+  fileIdsFromHandle,
+  foldLocalUnc,
+  parseNetShare,
+  stripExtended,
+  type ShareMap
+} from '../shared/fileIdentityCore'
 
 const execFileAsync = promisify(execFile)
-
-type ShareMap = Map<string, string>
 
 let shareCache: { at: number; shares: ShareMap } | null = null
 const CACHE_MS = 8000
@@ -21,25 +26,9 @@ async function run(cmd: string, args: string[]): Promise<string> {
 
 async function loadShares(): Promise<ShareMap> {
   if (shareCache && Date.now() - shareCache.at < CACHE_MS) return shareCache.shares
-  const shares: ShareMap = new Map()
-  const netShare = await run('net', ['share'])
-  for (const line of netShare.split(/\r?\n/)) {
-    const match = line.match(/^(\S+)\s+([A-Za-z]:\\[^\s]*)/)
-    if (!match) continue
-    const name = match[1]
-    if (/^(Share|共有|The|コマンド|---)/i.test(name)) continue
-    if (/^(IPC|ADMIN|print)\$$/i.test(name)) continue
-    shares.set(name.toLowerCase(), match[2].trim())
-  }
+  const shares = parseNetShare(await run('net', ['share']))
   shareCache = { at: Date.now(), shares }
   return shares
-}
-
-function splitUnc(pathStr: string): { server: string; share: string; rest: string } | null {
-  const normalized = pathStr.replace(/\//g, '\\')
-  const match = normalized.match(/^\\\\([^\\]+)\\([^\\]+)(?:\\(.*))?$/)
-  if (!match) return null
-  return { server: match[1], share: match[2], rest: match[3] ?? '' }
 }
 
 function thisHosts(): Set<string> {
@@ -53,27 +42,8 @@ function thisHosts(): Set<string> {
   return names
 }
 
-function isThisHost(server: string): boolean {
-  const s = server.toLowerCase()
-  const hosts = thisHosts()
-  if (hosts.has(s)) return true
-  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(s) || s.includes(':')) return false
-  return hosts.has(s.split('.')[0])
-}
-
-function hostKey(server: string): string {
-  const s = server.toLowerCase()
-  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(s) || s.includes(':')) return s
-  return s.split('.')[0]
-}
-
 function shortHost(): string {
   return hostname().toLowerCase().split('.')[0]
-}
-
-function uncKey(server: string, share: string, rest: string): string {
-  const tail = rest.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').toLowerCase()
-  return `unc:${hostKey(server)}/${share.toLowerCase()}/${tail}`
 }
 
 function localHostAliases(): string[] {
@@ -86,67 +56,28 @@ function localHostAliases(): string[] {
   return [...new Set(names)]
 }
 
-function foldLocalUnc(winPath: string, shares: ShareMap): string {
-  const unc = splitUnc(winPath)
-  if (!unc || !isThisHost(unc.server)) return winPath
-  const share = unc.share.toLowerCase()
-  const admin = share.match(/^([a-z])\$$/)
-  if (admin) return `${admin[1].toUpperCase()}:\\${unc.rest}`
-  const root = shares.get(share)
-  if (root) return root.replace(/\\$/, '') + (unc.rest ? `\\${unc.rest}` : '')
-  return winPath
-}
-
-function aliasesForLocal(absPath: string, shares: ShareMap): string[] {
-  const ids: string[] = []
-  const hosts = localHostAliases()
-  const win = absPath.replace(/\//g, '\\')
-  const drive = win.match(/^([A-Za-z]):\\(.*)$/)
-  if (drive) {
-    for (const host of hosts) ids.push(uncKey(host, `${drive[1]}$`, drive[2]))
-  }
-  const lower = win.toLowerCase()
-  for (const [share, root] of shares) {
-    const prefix = root.replace(/\\$/, '').toLowerCase()
-    if (lower === prefix || lower.startsWith(`${prefix}\\`)) {
-      const rest = win.slice(root.replace(/\\$/, '').length).replace(/^\\/, '')
-      for (const host of hosts) ids.push(uncKey(host, share, rest))
-    }
-  }
-  return ids
-}
-
 export async function resolveFileIds(filePath: string): Promise<string[]> {
   try {
-    const { inspectFileHandle, stripExtended } = await import('./win32File')
+    const { inspectFileHandle } = await import('./win32File')
     const abs = isAbsolute(filePath) ? filePath : resolvePath(filePath)
     const info = inspectFileHandle(abs)
     if (!info) return []
 
     const shares = await loadShares()
+    const hosts = thisHosts()
     let expanded = stripExtended(info.finalPath.replace(/\//g, '\\'))
-    expanded = foldLocalUnc(expanded, shares)
+    expanded = foldLocalUnc(expanded, shares, hosts)
 
-    const unc = splitUnc(expanded)
-    const unresolvedRemote =
-      info.remote && !unc && /^[A-Za-z]:\\/.test(expanded)
-    if (unresolvedRemote) return []
-
-    if (unc && !isThisHost(unc.server)) {
-      return [uncKey(unc.server, unc.share, unc.rest)]
-    }
-
-    const ids = new Set<string>()
-    if (unc) ids.add(uncKey(unc.server, unc.share, unc.rest))
-
-    if (info.fileIndex !== 0n && info.volumeSerial !== 0) {
-      ids.add(`local:${shortHost()}:${info.volumeSerial.toString(16)}:${info.fileIndex.toString()}`)
-    }
-    if (/^[A-Za-z]:\\/.test(expanded)) {
-      for (const extra of aliasesForLocal(expanded, shares)) ids.add(extra)
-    }
-
-    return [...ids]
+    return fileIdsFromHandle({
+      expandedPath: expanded,
+      remote: info.remote,
+      volumeSerial: info.volumeSerial,
+      fileIndex: info.fileIndex,
+      shortHost: shortHost(),
+      thisHosts: hosts,
+      localAliases: localHostAliases(),
+      shares
+    })
   } catch {
     return []
   }

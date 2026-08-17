@@ -75,6 +75,13 @@ export class LanDiscovery {
     return [...this.peers.values()]
   }
 
+  seed(peers: Presence[], now = Date.now()): void {
+    this.peers.clear()
+    for (const peer of peers) {
+      this.peers.set(peer.peerId, { ...peer, lastSeen: now })
+    }
+  }
+
   close(): void {
     this.stopAdvertiseTimer()
     this.presence = null

@@ -3,7 +3,8 @@ import { randomUUID } from 'crypto'
 import { networkInterfaces } from 'os'
 import { BrowserWindow } from 'electron'
 import { FrameReader, encodeFrame, type ControlMessage } from './frame'
-import { LanDiscovery, electHub, type Presence } from './discovery'
+import { LanDiscovery, type Presence } from './discovery'
+import { decideHubTick, failedHostKey } from './hubTick'
 import { PEER_COLORS, type PeerInfo } from '../../shared/types'
 
 type Role = 'solo' | 'host' | 'guest'
@@ -45,7 +46,7 @@ export class CollabHub {
   readonly localPeerId = randomUUID()
   private role: Role = 'solo'
   private displayName = ''
-  private startedAt = Date.now()
+  private startedAt: number
   private localColor = PEER_COLORS[0]
   private server: Server | null = null
   private tcpPort = 0
@@ -53,7 +54,7 @@ export class CollabHub {
   private hostReader: FrameReader | null = null
   private hostId: string | null = null
   private clients = new Map<string, TrackedSocket>()
-  private discovery = new LanDiscovery()
+  private discovery: LanDiscovery
   private win: BrowserWindow | null = null
   private leaving = false
   private connecting = false
@@ -67,6 +68,33 @@ export class CollabHub {
   private filePresence = new Map<string, { docId: string | null; docTitle: string | null }>()
   private failedHosts = new Map<string, number>()
   private lastHost: { peerId: string; tcpPort: number; hostAddress: string } | null = null
+
+  constructor(discovery: LanDiscovery = new LanDiscovery(), startedAt = Date.now()) {
+    this.discovery = discovery
+    this.startedAt = startedAt
+  }
+
+  inspect(): {
+    role: Role
+    tcpPort: number
+    welcomed: boolean
+    clientCount: number
+    localPeerId: string
+    startedAt: number
+  } {
+    return {
+      role: this.role,
+      tcpPort: this.tcpPort,
+      welcomed: this.welcomed,
+      clientCount: this.clients.size,
+      localPeerId: this.localPeerId,
+      startedAt: this.startedAt
+    }
+  }
+
+  async tickNow(): Promise<void> {
+    await this.tick()
+  }
 
   attachWindow(win: BrowserWindow): void {
     this.win = win
@@ -85,10 +113,14 @@ export class CollabHub {
     }
     this.enabled = true
     this.role = 'solo'
-    this.discovery.onChange = () => this.tick()
+    this.discovery.onChange = () => {
+      void this.tick()
+    }
     await this.discovery.start()
     this.publishPresence()
-    this.tickTimer = setInterval(() => this.tick(), 800)
+    this.tickTimer = setInterval(() => {
+      void this.tick()
+    }, 800)
     this.emitState()
     return { localPeerId: this.localPeerId }
   }
@@ -183,42 +215,42 @@ export class CollabHub {
     this.discovery.close()
   }
 
-  private tick(): void {
-    if (!this.enabled || this.leaving || this.connecting) return
+  private async tick(): Promise<void> {
     const others = this.discovery.others()
     const viable = this.viableOthers(others)
-
-    if (this.role === 'host') {
-      this.updateStuckHint(viable.length, this.clients.size)
-      if (this.clients.size === 0 && viable.length === 0 && !this.holdHost) {
-        void this.demoteToSolo()
-      }
+    const decision = decideHubTick({
+      enabled: this.enabled,
+      leaving: this.leaving,
+      connecting: this.connecting,
+      role: this.role,
+      localPeerId: this.localPeerId,
+      startedAt: this.startedAt,
+      holdHost: this.holdHost,
+      clientCount: this.clients.size,
+      others: viable
+    })
+    if (decision.action === 'demote') {
+      await this.demoteToSolo()
       return
     }
-
+    if (this.role === 'host') {
+      this.updateStuckHint(viable.length, this.clients.size)
+      return
+    }
     if (this.role === 'guest') {
       this.updateStuckHint(viable.length, this.hostSocket ? 1 : 0)
       return
     }
-
     this.clearSoloErrorIfAlone(viable.length)
-
-    const liveHost = viable.find((p) => p.role === 'host' && p.tcpPort)
-    if (liveHost) {
-      void this.connectAsGuest(liveHost)
+    if (decision.action === 'join') {
+      await this.connectAsGuest(decision.host as Presence)
       return
     }
-
-    this.updateStuckHint(viable.length, 0)
-
-    const members = [
-      { peerId: this.localPeerId, startedAt: this.startedAt },
-      ...viable.map((p) => ({ peerId: p.peerId, startedAt: p.startedAt }))
-    ]
-    const elected = electHub(members)
-    if (elected?.peerId === this.localPeerId) {
-      void this.becomeHost()
+    if (decision.action === 'become-host') {
+      await this.becomeHost()
+      return
     }
+    this.updateStuckHint(viable.length, 0)
   }
 
   private async becomeHost(): Promise<void> {
@@ -516,7 +548,7 @@ export class CollabHub {
   }
 
   private hostFailKey(host: { peerId: string; tcpPort: number; hostAddress: string }): string {
-    return `${host.peerId}|${host.hostAddress}|${host.tcpPort}`
+    return failedHostKey(host)
   }
 
   private markHostFailed(host: { peerId: string; tcpPort: number; hostAddress: string }): void {

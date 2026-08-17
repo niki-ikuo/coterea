@@ -13,4 +13,18 @@ describe('electHub', () => {
     ])
     expect(elected?.peerId).toBe('old')
   })
+
+  it('同時刻は peerId の辞書順', () => {
+    expect(electHub([{ peerId: 'b', startedAt: 1 }, { peerId: 'a', startedAt: 1 }])?.peerId).toBe('a')
+  })
+
+  it('3人でも最古の一人だけ', () => {
+    expect(
+      electHub([
+        { peerId: 'c', startedAt: 30 },
+        { peerId: 'a', startedAt: 10 },
+        { peerId: 'b', startedAt: 20 }
+      ])?.peerId
+    ).toBe('a')
+  })
 })

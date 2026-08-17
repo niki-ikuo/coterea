@@ -29,6 +29,15 @@ export function earlierPeer(
   return a.peerId < b.peerId
 }
 
+export function electFileSaver(
+  me: { peerId: string; startedAt: number },
+  remotes: Array<{ peerId: string; startedAt: number }>,
+  keys: string[]
+): { peerId: string; startedAt: number } | null {
+  if (keys.length === 0 || remotes.length === 0) return null
+  return remotes.reduce((best, cur) => (earlierPeer(cur, best) ? cur : best), me)
+}
+
 export function messageKeys(msg: Record<string, unknown>): string[] {
   if (Array.isArray(msg.keys) && msg.keys.every((k) => typeof k === 'string')) return msg.keys
   if (typeof msg.key === 'string') return [msg.key]

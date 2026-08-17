@@ -8,6 +8,14 @@ import {
   collectAwarenessClientIds,
   type AwarenessUser
 } from '../../../shared/awarenessPeers'
+import {
+  applyRemoteYjs,
+  createYTextDoc,
+  encodeYDoc,
+  replaceYDocFromSnapshot,
+  YJS_LOAD_ORIGIN,
+  YJS_TEXT_KEY
+} from '../../../shared/yjsCanonical'
 import { languageFromPath } from './fileMeta'
 
 export type TabDoc = {
@@ -25,7 +33,6 @@ const docs = new Map<string, TabDoc>()
 const pendingSync = new Map<string, Uint8Array>()
 const pendingAwareness = new Map<string, Uint8Array>()
 const awarenessIndex = new Map<string, AwarenessPeerIndex>()
-const LOAD_ORIGIN = 'load'
 
 type LocalUser = { name: string; color: string; peerId?: string }
 
@@ -98,17 +105,10 @@ export function createTabDoc(
   const existing = docs.get(id)
   if (existing) return existing
 
-  const ydoc = new Y.Doc()
-  const ytext = ydoc.getText('monaco')
   const queued = pendingSync.get(id)
-  if (queued) {
-    pendingSync.delete(id)
-    Y.applyUpdate(ydoc, queued, 'remote')
-  } else if (content) {
-    ydoc.transact(() => {
-      ytext.insert(0, content)
-    }, LOAD_ORIGIN)
-  }
+  pendingSync.delete(id)
+  const ydoc = queued ? replaceYDocFromSnapshot(queued) : createYTextDoc(content)
+  const ytext = ydoc.getText(YJS_TEXT_KEY)
   const awareness = new Awareness(ydoc)
   awareness.setLocalStateField('user', { name: user.name, color: user.color })
   const undo = createUndoManager(ytext)
@@ -164,9 +164,8 @@ export function applyFullSync(id: string, update: Uint8Array): void {
   tab.ydoc.destroy()
   awarenessIndex.delete(id)
 
-  const ydoc = new Y.Doc()
-  Y.applyUpdate(ydoc, update, 'remote')
-  const ytext = ydoc.getText('monaco')
+  const ydoc = replaceYDocFromSnapshot(update)
+  const ytext = ydoc.getText(YJS_TEXT_KEY)
   const awareness = new Awareness(ydoc)
   awareness.setLocalStateField('user', user)
   const undo = createUndoManager(ytext)
@@ -247,13 +246,13 @@ export function replaceText(id: string, content: string): void {
     const len = tab.ytext.length
     if (len > 0) tab.ytext.delete(0, len)
     if (content) tab.ytext.insert(0, content)
-  }, LOAD_ORIGIN)
+  }, YJS_LOAD_ORIGIN)
 }
 
 export function encodeDoc(id: string): Uint8Array {
   const tab = docs.get(id)
   if (!tab) return new Uint8Array()
-  return Y.encodeStateAsUpdate(tab.ydoc)
+  return encodeYDoc(tab.ydoc)
 }
 
 export function encodeAwarenessAll(id: string): Uint8Array {
@@ -306,7 +305,7 @@ export function applyYjs(id: string, update: Uint8Array): void {
   const tab = docs.get(id)
   if (!tab) return
   withPreservedViewports(tab.editors, () => {
-    Y.applyUpdate(tab.ydoc, update, 'remote')
+    applyRemoteYjs(tab.ydoc, update)
   })
 }
 

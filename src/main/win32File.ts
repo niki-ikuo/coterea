@@ -1,4 +1,7 @@
 import { address, load, out, pointer, struct } from 'koffi'
+import { parseDosDeviceTarget, stripExtended } from '../shared/fileIdentityCore'
+
+export { parseDosDeviceTarget, stripExtended }
 
 const GENERIC_NONE = 0
 const FILE_SHARE_ALL = 0x00000007
@@ -69,28 +72,6 @@ function toLongPath(filePath: string): string {
   if (normalized.startsWith('\\\\?\\')) return normalized
   if (normalized.startsWith('\\\\')) return `\\\\?\\UNC\\${normalized.slice(2)}`
   return `\\\\?\\${normalized}`
-}
-
-export function stripExtended(pathStr: string): string {
-  if (pathStr.startsWith('\\\\?\\UNC\\')) return `\\\\${pathStr.slice(8)}`
-  if (pathStr.startsWith('\\\\?\\')) return pathStr.slice(4)
-  return pathStr
-}
-
-export function parseDosDeviceTarget(
-  target: string
-): { kind: 'unc'; server: string; share: string } | { kind: 'path'; path: string } | null {
-  const t = target.split('\0')[0]?.trim() ?? ''
-  if (!t) return null
-  const subst = t.match(/^\\\?\?\\([A-Za-z]:\\.*)$/)
-  if (subst) return { kind: 'path', path: subst[1] }
-  const redirector = t.match(
-    /\\(?:Device\\)?(?:Mup\\)?(?:LanmanRedirector|Mup)(?:\\;[^\\]*)?\\([^\\;][^\\]*)\\([^\\]+)/i
-  )
-  if (redirector) return { kind: 'unc', server: redirector[1], share: redirector[2] }
-  const mup = t.match(/^\\Device\\Mup\\([^\\]+)\\([^\\]+)/i)
-  if (mup) return { kind: 'unc', server: mup[1], share: mup[2] }
-  return null
 }
 
 function queryDosDevice(letter: string): string {

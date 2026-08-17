@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { earlierPeer, idsOverlap, messageKeys, offerKeys } from './fileSession'
+import { earlierPeer, electFileSaver, idsOverlap, messageKeys, offerKeys } from './fileSession'
 
 describe('idsOverlap', () => {
   it('重なる識別子があれば同一実体', () => {
@@ -24,6 +24,27 @@ describe('earlierPeer', () => {
   it('同時刻は peerId の辞書順', () => {
     expect(earlierPeer({ peerId: 'a', startedAt: 1 }, { peerId: 'b', startedAt: 1 })).toBe(true)
     expect(earlierPeer({ peerId: 'b', startedAt: 1 }, { peerId: 'a', startedAt: 1 })).toBe(false)
+  })
+})
+
+describe('electFileSaver', () => {
+  it('共同編集相手がいるとき最古参が保存する', () => {
+    const saver = electFileSaver({ peerId: 'me', startedAt: 20 }, [{ peerId: 'old', startedAt: 10 }], [
+      'local:a:1:2'
+    ])
+    expect(saver?.peerId).toBe('old')
+  })
+
+  it('自分が最古なら自分が保存する', () => {
+    const saver = electFileSaver({ peerId: 'me', startedAt: 1 }, [{ peerId: 'new', startedAt: 9 }], [
+      'unc:host/share/a.txt'
+    ])
+    expect(saver?.peerId).toBe('me')
+  })
+
+  it('無題や相手なしでは保存権を選ばない', () => {
+    expect(electFileSaver({ peerId: 'me', startedAt: 1 }, [{ peerId: 'x', startedAt: 2 }], [])).toBeNull()
+    expect(electFileSaver({ peerId: 'me', startedAt: 1 }, [], ['local:a:1:2'])).toBeNull()
   })
 })
 
