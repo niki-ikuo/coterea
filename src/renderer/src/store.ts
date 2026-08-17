@@ -28,6 +28,7 @@ export type CollabState = {
   startedAt: number | null
   peers: PeerInfo[]
   sharedKeys: string[]
+  fileSavers: { title: string; local: boolean; name: string }[]
   remoteFileTitles: string[]
   identityHint: string | null
   error: string | null
@@ -67,6 +68,7 @@ const idleCollab: CollabState = {
   startedAt: null,
   peers: [],
   sharedKeys: [],
+  fileSavers: [],
   remoteFileTitles: [],
   identityHint: null,
   error: null,

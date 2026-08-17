@@ -66,6 +66,8 @@ export class CollabHub {
   private stuckSince: number | null = null
   private holdHost = false
   private filePresence = new Map<string, { docId: string | null; docTitle: string | null }>()
+  private failedHosts = new Map<string, number>()
+  private lastHost: { peerId: string; tcpPort: number; hostAddress: string } | null = null
 
   attachWindow(win: BrowserWindow): void {
     this.win = win
@@ -122,6 +124,9 @@ export class CollabHub {
     this.welcomed = false
     this.hostId = null
     this.filePresence.clear()
+    this.connectError = null
+    this.netHint = null
+    this.stuckSince = null
     await this.tearDownTcp()
     this.publishPresence()
     if (was === 'host' || was === 'guest') {
@@ -189,31 +194,34 @@ export class CollabHub {
   private tick(): void {
     if (!this.enabled || this.leaving || this.connecting) return
     const others = this.discovery.others()
+    const viable = this.viableOthers(others)
 
     if (this.role === 'host') {
-      this.updateStuckHint(others.length, this.clients.size)
-      if (this.clients.size === 0 && others.length === 0 && !this.holdHost) {
+      this.updateStuckHint(viable.length, this.clients.size)
+      if (this.clients.size === 0 && viable.length === 0 && !this.holdHost) {
         void this.demoteToSolo()
       }
       return
     }
 
     if (this.role === 'guest') {
-      this.updateStuckHint(others.length, this.hostSocket ? 1 : 0)
+      this.updateStuckHint(viable.length, this.hostSocket ? 1 : 0)
       return
     }
 
-    const liveHost = others.find((p) => p.role === 'host' && p.tcpPort)
+    this.clearSoloErrorIfAlone(viable.length)
+
+    const liveHost = viable.find((p) => p.role === 'host' && p.tcpPort)
     if (liveHost) {
       void this.connectAsGuest(liveHost)
       return
     }
 
-    this.updateStuckHint(others.length, 0)
+    this.updateStuckHint(viable.length, 0)
 
     const members = [
       { peerId: this.localPeerId, startedAt: this.startedAt },
-      ...others.map((p) => ({ peerId: p.peerId, startedAt: p.startedAt }))
+      ...viable.map((p) => ({ peerId: p.peerId, startedAt: p.startedAt }))
     ]
     const elected = electHub(members)
     if (elected?.peerId === this.localPeerId) {
@@ -258,6 +266,11 @@ export class CollabHub {
     this.welcomed = false
     this.role = 'guest'
     this.hostId = host.peerId
+    this.lastHost = {
+      peerId: host.peerId,
+      tcpPort: host.tcpPort as number,
+      hostAddress: normalizeHost(host.hostAddress)
+    }
     this.connectError = null
     this.netHint = null
     this.publishPresence()
@@ -322,11 +335,18 @@ export class CollabHub {
       this.role = 'solo'
       this.hostId = null
       this.welcomed = false
-      this.connectError =
-        err instanceof Error && err.message === 'ホストからの応答がありません'
-          ? 'ハブへの TCP 接続がタイムアウトしました。Windows ファイアウォールで Coterea を許可するか、無線 AP の端末間通信禁止（クライアント分離）を確認してください。'
-          : 'ハブへの TCP 接続に失敗しました。ファイアウォール、AP の隔離、別サブネットの可能性があります。'
-      this.netHint = this.connectError
+      if (this.lastHost) this.markHostFailed(this.lastHost)
+      const stillHavePeers = this.viableOthers(this.discovery.others()).length > 0
+      if (stillHavePeers) {
+        this.connectError =
+          err instanceof Error && err.message === 'ホストからの応答がありません'
+            ? 'ハブへの TCP 接続がタイムアウトしました。Windows ファイアウォールで Coterea を許可するか、無線 AP の端末間通信禁止（クライアント分離）を確認してください。'
+            : 'ハブへの TCP 接続に失敗しました。ファイアウォール、AP の隔離、別サブネットの可能性があります。'
+        this.netHint = this.connectError
+      } else {
+        this.connectError = null
+        this.netHint = null
+      }
       this.publishPresence()
       this.emitState()
     } finally {
@@ -336,6 +356,7 @@ export class CollabHub {
   }
 
   private onHostLost(): void {
+    if (this.lastHost) this.markHostFailed(this.lastHost)
     this.hostSocket = null
     this.hostReader = null
     this.hostId = null
@@ -343,7 +364,8 @@ export class CollabHub {
     this.welcomed = false
     this.filePresence.clear()
     this.connectError = null
-    this.netHint = 'ハブが切断されました。残りの最古参が引き継ぎ、文書を再同期します。'
+    this.netHint = null
+    this.stuckSince = null
     this.publishPresence()
     this.sendToRenderer({ type: 'host-lost' }, Buffer.alloc(0))
     this.emitState()
@@ -489,7 +511,7 @@ export class CollabHub {
       localColor: this.localColor,
       startedAt: this.startedAt,
       peers,
-      udpPeerCount: others.length,
+      udpPeerCount: this.viableOthers(others).length,
       tcpPeerCount: this.role === 'host' ? this.clients.size : this.welcomed && this.hostSocket ? 1 : 0,
       connectError: this.connectError,
       netHint: this.netHint,
@@ -500,6 +522,44 @@ export class CollabHub {
     if (this.role === 'host') {
       this.broadcast({ type: 'peer-list', peers: this.collectPeers() }, undefined, null)
     }
+  }
+
+  private hostFailKey(host: { peerId: string; tcpPort: number; hostAddress: string }): string {
+    return `${host.peerId}|${host.hostAddress}|${host.tcpPort}`
+  }
+
+  private markHostFailed(host: { peerId: string; tcpPort: number; hostAddress: string }): void {
+    this.failedHosts.set(this.hostFailKey(host), Date.now() + 12_000)
+  }
+
+  private pruneFailedHosts(): void {
+    const now = Date.now()
+    for (const [key, until] of this.failedHosts) {
+      if (until <= now) this.failedHosts.delete(key)
+    }
+  }
+
+  private viableOthers(others: ReturnType<LanDiscovery['others']>): ReturnType<LanDiscovery['others']> {
+    this.pruneFailedHosts()
+    return others.filter((peer) => {
+      if (!peer.tcpPort || !peer.hostAddress) return true
+      return !this.failedHosts.has(
+        this.hostFailKey({
+          peerId: peer.peerId,
+          tcpPort: peer.tcpPort,
+          hostAddress: normalizeHost(peer.hostAddress)
+        })
+      )
+    })
+  }
+
+  private clearSoloErrorIfAlone(viableCount: number): void {
+    if (this.role !== 'solo' || viableCount > 0) return
+    if (!this.connectError && !this.netHint) return
+    this.connectError = null
+    this.netHint = null
+    this.stuckSince = null
+    this.emitState()
   }
 
   private updateStuckHint(udpOthers: number, tcpPeers: number): void {

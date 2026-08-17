@@ -42,6 +42,8 @@ const api = {
       ipcRenderer.invoke('fs:confirmExternalChange', filePath),
     watch: (filePath: string): Promise<void> => ipcRenderer.invoke('fs:watch', filePath),
     unwatch: (filePath: string): Promise<void> => ipcRenderer.invoke('fs:unwatch', filePath),
+    noteOwnWrite: (filePath: string, meta: WriteFileResult): Promise<void> =>
+      ipcRenderer.invoke('fs:noteOwnWrite', filePath, meta),
     onChanged: (cb: (payload: { path: string; mtimeMs: number; size: number }) => void) => {
       const listener = (
         _e: Electron.IpcRendererEvent,

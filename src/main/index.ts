@@ -8,7 +8,7 @@ import { confirmExternalChange, confirmUnsaved, openFiles, peekTextFile, readTex
 import { FileWatcher } from './fileWatch'
 import { resolveFileIds } from './fileIdentity'
 import type { ControlMessage } from './collab/frame'
-import type { DocMeta } from '../shared/types'
+import type { DocMeta, WriteFileResult } from '../shared/types'
 import { parseEncoding } from './encoding'
 import { DEFAULT_ENCODING } from '../shared/encoding'
 import { isDarkTheme, parseTheme, THEME_TITLEBAR_OVERLAY, THEME_WINDOW_BG, TITLEBAR_HEIGHT, type ThemeId } from '../shared/theme'
@@ -193,6 +193,12 @@ function registerIpc(): void {
   })
   ipcMain.handle('fs:unwatch', (_e, filePath: string) => {
     if (typeof filePath === 'string' && filePath) fileWatcher.unwatch(filePath)
+  })
+  ipcMain.handle('fs:noteOwnWrite', (_e, filePath: string, meta: WriteFileResult) => {
+    if (typeof filePath !== 'string' || !filePath) return
+    if (!meta || typeof meta.mtimeMs !== 'number' || typeof meta.size !== 'number') return
+    if (!Number.isFinite(meta.mtimeMs) || !Number.isFinite(meta.size)) return
+    fileWatcher.noteOwnWrite(filePath, { mtimeMs: meta.mtimeMs, size: meta.size })
   })
   ipcMain.handle('collab:enable', async (_e, displayName: string) => {
     return hub.enable(displayName)

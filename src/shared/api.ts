@@ -27,6 +27,7 @@ export interface CotereaApi {
     confirmExternalChange: (filePath: string) => Promise<ExternalChangeDecision>
     watch: (filePath: string) => Promise<void>
     unwatch: (filePath: string) => Promise<void>
+    noteOwnWrite: (filePath: string, meta: WriteFileResult) => Promise<void>
     onChanged: (cb: (payload: { path: string; mtimeMs: number; size: number }) => void) => () => void
   }
   recent: {

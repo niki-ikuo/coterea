@@ -1,5 +1,5 @@
 import { languageFromPath, titleFromPath, isMarkdownLanguage } from './fileMeta'
-import { announceNewDoc, flushPendingSaves, isCollabActive, isTabSaving, publishManifest, withSuppressDirty } from './collab'
+import { announceNewDoc, flushPendingSaves, forgetSavedText, isCollabActive, isTabSaving, persistTab, publishManifest, rememberSavedText, withSuppressDirty } from './collab'
 import { preloadEditor } from './editorReady'
 import { useAppStore, type MdView, type TabInfo } from '../store'
 import { DEFAULT_ENCODING, type EncodingId } from '../../../shared/encoding'
@@ -33,6 +33,7 @@ export async function createUntitled(): Promise<TabInfo> {
     saveError: null
   }
   createTabDoc(id, '', 'plaintext', { name: displayName, color: collab.localColor })
+  rememberSavedText(id, '')
   useAppStore.getState().setTabs((tabs) => [...tabs, tab])
   useAppStore.getState().setActiveTabId(id)
   announceNewDoc(tab)
@@ -91,6 +92,7 @@ export async function reloadTabFromDisk(tabId: string): Promise<void> {
   if (!read) return
   const { replaceText } = await preloadEditor()
   withSuppressDirty(() => replaceText(tabId, read.content))
+  rememberSavedText(tabId, read.content)
   useAppStore.getState().setTabs((tabs) =>
     tabs.map((t) => (t.id === tabId ? { ...t, isDirty: false, saveError: null, encoding: read.encoding } : t))
   )
@@ -171,6 +173,7 @@ export async function openPaths(paths: string[]): Promise<void> {
     const language = languageFromPath(filePath)
     const { createTabDoc } = await preloadEditor()
     createTabDoc(id, read.content, language, { name: displayName, color: collab.localColor })
+    rememberSavedText(id, read.content)
     const tab: TabInfo = {
       id,
       path: filePath,
@@ -200,6 +203,9 @@ export async function openDialog(): Promise<void> {
 export async function saveTab(tabId: string, saveAs = false): Promise<boolean> {
   const tab = useAppStore.getState().tabs.find((t) => t.id === tabId)
   if (!tab) return false
+  if (tab.path && !saveAs) {
+    return persistTab(tabId)
+  }
   let path = tab.path
   if (!path || saveAs) {
     const result = await window.coterea.fs.saveAs(tab.title === '無題' ? 'untitled.txt' : tab.title)
@@ -208,7 +214,9 @@ export async function saveTab(tabId: string, saveAs = false): Promise<boolean> {
   }
   try {
     const { getText } = await preloadEditor()
-    await window.coterea.fs.write(path, getText(tabId), tab.encoding)
+    const content = getText(tabId)
+    await window.coterea.fs.write(path, content, tab.encoding)
+    rememberSavedText(tabId, content)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     useAppStore.getState().setTabs((tabs) =>
@@ -259,6 +267,7 @@ export async function closeTab(tabId: string): Promise<void> {
   unwatchIfUnused(tab.path, tabId)
   const { disposeTabDoc } = await preloadEditor()
   disposeTabDoc(tabId)
+  forgetSavedText(tabId)
   const { tabs, activeTabId } = useAppStore.getState()
   const next = tabs.filter((t) => t.id !== tabId)
   useAppStore.getState().setTabs(next)
@@ -342,6 +351,7 @@ export async function reopenWithEncoding(tabId: string, encoding: EncodingId): P
   if (!read) return
   const { replaceText } = await preloadEditor()
   withSuppressDirty(() => replaceText(tabId, read.content))
+  rememberSavedText(tabId, read.content)
   useAppStore.getState().setTabs((tabs) =>
     tabs.map((t) =>
       t.id === tabId ? { ...t, encoding: read.encoding, isDirty: false, saveError: null } : t

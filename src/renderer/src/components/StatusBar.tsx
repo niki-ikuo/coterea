@@ -17,7 +17,7 @@ export function StatusBar(): React.JSX.Element {
     ? `接続 ${n}人`
     : collab.status === 'connecting'
       ? '接続中'
-      : collab.error
+      : collab.status !== 'solo' && collab.error
         ? '接続失敗'
         : collab.udpPeerCount > 0
           ? '検出中'

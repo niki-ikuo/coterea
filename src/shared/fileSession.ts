@@ -28,3 +28,9 @@ export function earlierPeer(
   if (a.startedAt !== b.startedAt) return a.startedAt < b.startedAt
   return a.peerId < b.peerId
 }
+
+export function messageKeys(msg: Record<string, unknown>): string[] {
+  if (Array.isArray(msg.keys) && msg.keys.every((k) => typeof k === 'string')) return msg.keys
+  if (typeof msg.key === 'string') return [msg.key]
+  return []
+}

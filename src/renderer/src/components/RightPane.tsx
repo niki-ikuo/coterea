@@ -118,9 +118,14 @@ export function RightPane(): React.JSX.Element {
           </p>
         ) : (
           <ul className="peer-list">
-            {collab.sharedKeys.map((key) => (
-              <li key={key}>{key}</li>
-            ))}
+            {(collab.fileSavers.length > 0 ? collab.fileSavers : collab.sharedKeys.map((title) => ({ title, local: true, name: 'このPC' }))).map(
+              (item) => (
+                <li key={item.title}>
+                  {item.title}
+                  <div className="muted small">ディスク保存: {item.local ? 'このPC' : item.name}</div>
+                </li>
+              )
+            )}
           </ul>
         )}
         {collab.identityHint && collab.sharedKeys.length === 0 && collab.remoteFileTitles.length > 0 && (

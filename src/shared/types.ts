@@ -1,6 +1,7 @@
 export const COLLAB_UDP_PORT = 47821
 export const COLLAB_MAGIC = 'COTEREA1'
 export const AUTOSAVE_MS = 800
+export const REMOTE_SAVE_MS = 8000
 export const FILE_SIZE_WARN_BYTES = 2 * 1024 * 1024
 export const FILE_LINE_WARN = 100_000
 
