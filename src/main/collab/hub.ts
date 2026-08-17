@@ -65,6 +65,7 @@ export class CollabHub {
   private netHint: string | null = null
   private stuckSince: number | null = null
   private holdHost = false
+  private filePresence = new Map<string, { docId: string | null; docTitle: string | null }>()
 
   attachWindow(win: BrowserWindow): void {
     this.win = win
@@ -106,6 +107,7 @@ export class CollabHub {
 
   sendFromRenderer(msg: ControlMessage, binary?: Buffer): void {
     const stamped = { ...msg, peerId: this.localPeerId }
+    if (msg.type === 'presence') this.noteFilePresence(this.localPeerId, msg)
     if (this.role === 'host') {
       this.broadcast(stamped, binary, null)
     } else if (this.role === 'guest' && this.hostSocket) {
@@ -119,6 +121,7 @@ export class CollabHub {
     this.role = 'solo'
     this.welcomed = false
     this.hostId = null
+    this.filePresence.clear()
     await this.tearDownTcp()
     this.publishPresence()
     if (was === 'host' || was === 'guest') {
@@ -290,8 +293,8 @@ export class CollabHub {
                 this.connectError = null
                 this.netHint = null
                 this.stuckSince = null
-                this.sendToRenderer({ type: 'became-guest', docs: this.docs }, Buffer.alloc(0))
                 this.emitState()
+                this.sendToRenderer({ type: 'became-guest', docs: this.docs }, Buffer.alloc(0))
                 resolve()
               } else {
                 this.sendToRenderer(frame.msg, frame.binary)
@@ -338,6 +341,7 @@ export class CollabHub {
     this.hostId = null
     this.role = 'solo'
     this.welcomed = false
+    this.filePresence.clear()
     this.connectError = null
     this.netHint = 'ハブが切断されました。残りの最古参が引き継ぎ、文書を再同期します。'
     this.publishPresence()
@@ -350,6 +354,7 @@ export class CollabHub {
     await this.tearDownTcp()
     this.role = 'solo'
     this.hostId = null
+    this.filePresence.clear()
     this.connectError = null
     this.netHint = null
     this.stuckSince = null
@@ -408,6 +413,7 @@ export class CollabHub {
               })
             )
             this.emitState()
+            this.broadcast({ type: 'presence-request' }, undefined, id)
             this.sendToRenderer(
               {
                 type: 'peer-joined',
@@ -420,6 +426,7 @@ export class CollabHub {
             continue
           }
           const stamped = { ...frame.msg, peerId: tracked.id }
+          if (frame.msg.type === 'presence') this.noteFilePresence(tracked.id, frame.msg)
           this.sendToRenderer(stamped, frame.binary)
           this.broadcast(stamped, frame.binary, tracked.id)
         }
@@ -430,6 +437,7 @@ export class CollabHub {
     socket.on('close', () => {
       if (!tracked) return
       this.clients.delete(tracked.id)
+      this.filePresence.delete(tracked.id)
       if (this.leaving) return
       this.emitState()
       this.sendToRenderer({ type: 'peer-left', peerId: tracked.id }, Buffer.alloc(0))
@@ -512,25 +520,41 @@ export class CollabHub {
     }
   }
 
+  private noteFilePresence(peerId: string, msg: ControlMessage): void {
+    this.filePresence.set(peerId, {
+      docId: typeof msg.docId === 'string' ? msg.docId : null,
+      docTitle: typeof msg.docTitle === 'string' ? msg.docTitle : null
+    })
+  }
+
+  private withFilePresence(
+    peer: Omit<PeerInfo, 'docId' | 'docTitle'>
+  ): PeerInfo {
+    const extra = this.filePresence.get(peer.id)
+    return {
+      ...peer,
+      docId: extra?.docId ?? null,
+      docTitle: extra?.docTitle ?? null
+    }
+  }
+
   private collectPeers(): PeerInfo[] {
     const peers: PeerInfo[] = [
-      {
+      this.withFilePresence({
         id: this.localPeerId,
         displayName: this.displayName || '自分',
-        color: this.localColor,
-        docId: null,
-        docTitle: null
-      }
+        color: this.localColor
+      })
     ]
     if (this.role === 'host') {
       for (const c of this.clients.values()) {
-        peers.push({
-          id: c.id,
-          displayName: c.displayName,
-          color: c.color,
-          docId: null,
-          docTitle: null
-        })
+        peers.push(
+          this.withFilePresence({
+            id: c.id,
+            displayName: c.displayName,
+            color: c.color
+          })
+        )
       }
     } else if (this.role === 'solo') {
       for (const p of this.discovery.others()) {

@@ -163,11 +163,7 @@ function bumpSyncGeneration(): void {
 }
 
 function mergePeerPresence(incoming: PeerInfo[]): PeerInfo[] {
-  if (!isCollabActive()) {
-    return incoming.map((peer) => ({ ...peer, docId: null, docTitle: null }))
-  }
   const prev = useAppStore.getState().collab.peers
-  const live = new Set(incoming.map((peer) => peer.id))
   return incoming.map((peer) => {
     const old = prev.find((item) => item.id === peer.id)
     return {
@@ -175,7 +171,7 @@ function mergePeerPresence(incoming: PeerInfo[]): PeerInfo[] {
       docId: peer.docId ?? old?.docId ?? null,
       docTitle: peer.docTitle ?? old?.docTitle ?? null
     }
-  }).filter((peer) => live.has(peer.id))
+  })
 }
 
 export function editorsOnActiveFile(): PeerInfo[] {
@@ -223,6 +219,7 @@ function adoptCanonical(docs: typeof Docs, tab: TabInfo, canonicalId: string): T
   )
   if (useAppStore.getState().activeTabId === oldId) {
     useAppStore.getState().setActiveTabId(canonicalId)
+    sendPresence()
   }
   markDirty(canonicalId)
   return { ...tab, id: canonicalId }
@@ -346,6 +343,8 @@ export function handleCollabFrame(msg: Record<string, unknown>, binary: ArrayBuf
     bumpSyncGeneration()
     publishManifest()
     sendPresence()
+  } else if (type === 'presence-request') {
+    sendPresence()
   } else if (type === 'host-lost' || type === 'became-solo') {
     remoteManifests.clear()
     bumpSyncGeneration()
@@ -443,6 +442,7 @@ export function attachCollabListeners(): () => void {
     const connectError = payload.connectError ?? null
     const udpPeerCount = payload.udpPeerCount ?? 0
     const tcpPeerCount = payload.tcpPeerCount ?? 0
+    const wasActive = isCollabActive()
     useAppStore.getState().patchCollab({
       status: payload.status,
       role: payload.role,
@@ -466,6 +466,10 @@ export function attachCollabListeners(): () => void {
     })
     if (payload.status === 'hosting' || payload.status === 'joined') {
       reconcileFileSessions()
+      if (!wasActive) {
+        publishManifest()
+        sendPresence()
+      }
     }
   })
   const offPeers = window.coterea.collab.onPeers(({ peers }) => {
