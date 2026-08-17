@@ -221,10 +221,50 @@ export function encodeAwarenessAll(id: string): Uint8Array {
   return encodeAwarenessUpdate(tab.awareness, ids)
 }
 
+type ViewportAnchor = {
+  editor: monaco.editor.IStandaloneCodeEditor
+  model: monaco.editor.ITextModel
+  ids: string[]
+  offset: number
+}
+
+function withPreservedViewports(editors: Iterable<monaco.editor.IStandaloneCodeEditor>, apply: () => void): void {
+  const anchors: ViewportAnchor[] = []
+  for (const editor of editors) {
+    const model = editor.getModel()
+    const visible = editor.getVisibleRanges()[0]
+    if (!model || !visible) continue
+    const line = visible.startLineNumber
+    anchors.push({
+      editor,
+      model,
+      offset: editor.getScrollTop() - editor.getTopForLineNumber(line),
+      ids: model.deltaDecorations([], [{
+        range: new monaco.Range(line, 1, line, 1),
+        options: { stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges }
+      }])
+    })
+  }
+  try {
+    apply()
+  } finally {
+    for (const snap of anchors) {
+      const range = snap.model.getDecorationRange(snap.ids[0])
+      snap.model.deltaDecorations(snap.ids, [])
+      if (!range) continue
+      const nextTop = snap.editor.getTopForLineNumber(range.startLineNumber) + snap.offset
+      if (Math.abs(nextTop - snap.editor.getScrollTop()) < 0.5) continue
+      snap.editor.setScrollTop(nextTop, monaco.editor.ScrollType.Immediate)
+    }
+  }
+}
+
 export function applyYjs(id: string, update: Uint8Array): void {
   const tab = docs.get(id)
   if (!tab) return
-  Y.applyUpdate(tab.ydoc, update, 'remote')
+  withPreservedViewports(tab.editors, () => {
+    Y.applyUpdate(tab.ydoc, update, 'remote')
+  })
 }
 
 /** 未オープンの正本へ届いた全文スナップショットだけ保持する。増分は捨てる。 */
