@@ -56,6 +56,17 @@ export function EditorPane({ tabId }: Props): React.JSX.Element {
     })
     editorRef.current = editor
     setActiveEditor(editor)
+    const runUndo = (): void => {
+      const id = boundId.current
+      if (id) getTabDoc(id)?.undo.undo()
+    }
+    const runRedo = (): void => {
+      const id = boundId.current
+      if (id) getTabDoc(id)?.undo.redo()
+    }
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyZ, runUndo)
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyY, runRedo)
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyZ, runRedo)
     if (initial) {
       withSuppressDirty(() => bindEditor(initialId, editor))
       boundId.current = initialId

@@ -18,6 +18,22 @@ export type TabDoc = {
 const docs = new Map<string, TabDoc>()
 const pendingSync = new Map<string, Uint8Array>()
 const pendingAwareness = new Map<string, Uint8Array>()
+const LOAD_ORIGIN = 'load'
+
+function createUndoManager(ytext: Y.Text): Y.UndoManager {
+  return new Y.UndoManager(ytext, { trackedOrigins: new Set() })
+}
+
+function resetBinding(tab: TabDoc, editors: Set<monaco.editor.IStandaloneCodeEditor> | null): void {
+  if (tab.binding) {
+    tab.undo.removeTrackedOrigin(tab.binding)
+    tab.binding.destroy()
+    tab.binding = null
+  }
+  if (!editors || editors.size === 0) return
+  tab.binding = new MonacoBinding(tab.ytext, tab.model, editors, tab.awareness)
+  tab.undo.addTrackedOrigin(tab.binding)
+}
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
@@ -71,11 +87,13 @@ export function createTabDoc(
     pendingSync.delete(id)
     Y.applyUpdate(ydoc, queued, 'remote')
   } else if (content) {
-    ytext.insert(0, content)
+    ydoc.transact(() => {
+      ytext.insert(0, content)
+    }, LOAD_ORIGIN)
   }
   const awareness = new Awareness(ydoc)
   awareness.setLocalStateField('user', { name: user.name, color: user.color })
-  const undo = new Y.UndoManager(ytext)
+  const undo = createUndoManager(ytext)
   const uri = monaco.Uri.parse(`coterea://tab/${id}`)
   const model = monaco.editor.createModel(ytext.toString(), language, uri)
 
@@ -119,8 +137,7 @@ export function applyFullSync(id: string, update: Uint8Array): void {
   }
   const user = localUserOf(tab)
   const editors = [...tab.editors]
-  tab.binding?.destroy()
-  tab.binding = null
+  resetBinding(tab, null)
   tab.awareness.destroy()
   tab.ydoc.destroy()
 
@@ -129,7 +146,7 @@ export function applyFullSync(id: string, update: Uint8Array): void {
   const ytext = ydoc.getText('monaco')
   const awareness = new Awareness(ydoc)
   awareness.setLocalStateField('user', user)
-  const undo = new Y.UndoManager(ytext)
+  const undo = createUndoManager(ytext)
   tab.ydoc = ydoc
   tab.ytext = ytext
   tab.awareness = awareness
@@ -138,7 +155,7 @@ export function applyFullSync(id: string, update: Uint8Array): void {
   const next = ytext.toString()
   if (tab.model.getValue() !== next) tab.model.setValue(next)
   if (editors.length > 0) {
-    tab.binding = new MonacoBinding(ytext, tab.model, new Set(editors), awareness)
+    resetBinding(tab, new Set(editors))
   }
   flushPendingAwareness(tab)
 }
@@ -175,15 +192,13 @@ export function bindEditor(id: string, editor: monaco.editor.IStandaloneCodeEdit
   const tab = docs.get(id)
   if (!tab) return
   tab.editors.add(editor)
-  tab.binding?.destroy()
-  tab.binding = new MonacoBinding(tab.ytext, tab.model, tab.editors, tab.awareness)
+  resetBinding(tab, tab.editors)
 }
 
 export function unbindEditor(id: string): void {
   const tab = docs.get(id)
   if (!tab) return
-  tab.binding?.destroy()
-  tab.binding = null
+  resetBinding(tab, null)
   tab.editors.clear()
 }
 
@@ -204,7 +219,7 @@ export function replaceText(id: string, content: string): void {
     const len = tab.ytext.length
     if (len > 0) tab.ytext.delete(0, len)
     if (content) tab.ytext.insert(0, content)
-  })
+  }, LOAD_ORIGIN)
 }
 
 export function encodeDoc(id: string): Uint8Array {
@@ -298,7 +313,7 @@ export function clearRemoteAwareness(): void {
 export function disposeTabDoc(id: string): void {
   const tab = docs.get(id)
   if (!tab) return
-  tab.binding?.destroy()
+  resetBinding(tab, null)
   tab.awareness.destroy()
   tab.ydoc.destroy()
   tab.model.dispose()
