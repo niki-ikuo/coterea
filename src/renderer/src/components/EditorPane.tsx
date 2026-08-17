@@ -1,9 +1,9 @@
-import { lazy, Suspense, useEffect, useRef } from 'react'
+import { lazy, Suspense, useLayoutEffect, useRef } from 'react'
 import * as monaco from 'monaco-editor'
 import type { MarkdownPreviewHandle } from './MarkdownPreview'
 import { bindEditor, getTabDoc, getText, unbindEditor } from '../lib/docs'
 import { setActiveEditor } from '../lib/editorHandle'
-import { markDirty, sendPresence } from '../lib/collab'
+import { markDirty, sendPresence, withSuppressDirty } from '../lib/collab'
 import { isMarkdownLanguage } from '../lib/fileMeta'
 import { monacoThemeOf } from '../lib/monacoEnv'
 import { lineOfSection, parseMdSections, sectionAtLine } from '../lib/mdSync'
@@ -31,9 +31,12 @@ export function EditorPane({ tabId }: Props): React.JSX.Element {
   const splitPct = tab?.mdSplitPct ?? 50
   const scrollSync = tab?.mdScrollSync ?? true
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!hostRef.current) return
+    const initialId = tabId
+    const initial = getTabDoc(initialId)
     const editor = monaco.editor.create(hostRef.current, {
+      model: initial?.model ?? null,
       theme: monacoThemeOf(useAppStore.getState().theme),
       automaticLayout: true,
       fontSize: 14,
@@ -53,7 +56,13 @@ export function EditorPane({ tabId }: Props): React.JSX.Element {
     })
     editorRef.current = editor
     setActiveEditor(editor)
-    editor.layout()
+    if (initial) {
+      withSuppressDirty(() => bindEditor(initialId, editor))
+      boundId.current = initialId
+      sendPresence()
+      const pos = editor.getPosition()
+      if (pos) setCursor(pos.lineNumber, pos.column)
+    }
 
     editor.onDidChangeCursorPosition((e) => {
       setCursor(e.position.lineNumber, e.position.column)
@@ -77,21 +86,22 @@ export function EditorPane({ tabId }: Props): React.JSX.Element {
 
     return () => {
       if (boundId.current) unbindEditor(boundId.current)
+      boundId.current = null
       setActiveEditor(null)
       editor.dispose()
       editorRef.current = null
     }
   }, [setCursor])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const editor = editorRef.current
     const doc = getTabDoc(tabId)
     if (!editor || !doc) return
-    if (boundId.current && boundId.current !== tabId) unbindEditor(boundId.current)
+    if (boundId.current === tabId) return
+    if (boundId.current) unbindEditor(boundId.current)
     editor.setModel(doc.model)
-    bindEditor(tabId, editor)
+    withSuppressDirty(() => bindEditor(tabId, editor))
     boundId.current = tabId
-    editor.layout()
     sendPresence()
     const pos = editor.getPosition()
     if (pos) setCursor(pos.lineNumber, pos.column)

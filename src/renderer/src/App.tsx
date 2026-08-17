@@ -27,6 +27,7 @@ function bootApp(): Promise<void> {
       void enableCollab()
       const launchFiles = await window.coterea.app.consumeLaunchFiles()
       await preloadEditor()
+      await import('./components/EditorPane')
       if (launchFiles.length > 0) await openPathsFromShell(launchFiles)
       if (useAppStore.getState().tabs.length === 0) await createUntitled()
     })()
@@ -41,11 +42,12 @@ export function App(): React.JSX.Element {
   const displayName = useAppStore((s) => s.displayName)
   const localColor = useAppStore((s) => s.collab.localColor)
   const [rightWidth, setRightWidth] = useState(35)
+  const [booted, setBooted] = useState(false)
   const dragging = useRef(false)
 
   useEffect(() => {
     void preloadEditor()
-    void bootApp()
+    void bootApp().then(() => setBooted(true))
     const offCollab = attachCollabListeners()
     const offWatch = attachFileWatch()
     const offOpenFiles = window.coterea.app.onOpenFiles((paths) => {
@@ -150,10 +152,10 @@ export function App(): React.JSX.Element {
           <TabBar />
           <div className="editor-wrap">
             {showEditor && activeTabId ? (
-              <Suspense fallback={<div className="editor-host" />}>
+              <Suspense fallback={<div className="editor-stage"><div className="editor-host" /></div>}>
                 <EditorPane tabId={activeTabId} />
               </Suspense>
-            ) : (
+            ) : booted ? (
               <div className="empty">
                 <svg className="empty-mark" viewBox="0 0 512 512" aria-hidden>
                   <g className="empty-mark-paper">
@@ -182,6 +184,10 @@ export function App(): React.JSX.Element {
                     </span>
                   </button>
                 </div>
+              </div>
+            ) : (
+              <div className="editor-stage">
+                <div className="editor-host" />
               </div>
             )}
           </div>
