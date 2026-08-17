@@ -39,6 +39,10 @@ export const THEME_TITLEBAR_OVERLAY: Record<ThemeId, { color: string; symbolColo
 
 const IDS = new Set<string>(THEMES.map((t) => t.id))
 
+export function isDarkTheme(theme: ThemeId): boolean {
+  return theme === 'win-dark' || theme === 'hc-dark' || theme === 'warm-dark'
+}
+
 export function parseTheme(value: unknown): ThemeId {
   if (value === 'light') return 'win-light'
   if (value === 'dark') return 'win-dark'

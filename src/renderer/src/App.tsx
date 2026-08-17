@@ -18,18 +18,28 @@ let bootPromise: Promise<void> | null = null
 function bootApp(): Promise<void> {
   if (!bootPromise) {
     bootPromise = (async () => {
-      const s = await window.coterea.settings.get()
-      useAppStore.getState().setDisplayName(s.displayName)
-      useAppStore.getState().setCollabPaneVisible(s.collabPaneVisible === true)
-      const theme = parseTheme(s.theme)
-      useAppStore.getState().setTheme(theme)
-      applyUiTheme(theme)
-      void enableCollab()
-      const launchFiles = await window.coterea.app.consumeLaunchFiles()
-      await preloadEditor()
-      await import('./components/EditorPane')
-      if (launchFiles.length > 0) await openPathsFromShell(launchFiles)
-      if (useAppStore.getState().tabs.length === 0) await createUntitled()
+      try {
+        const editorP = preloadEditor()
+        const paneP = import('./components/EditorPane')
+        const s = await window.coterea.settings.get()
+        useAppStore.getState().setDisplayName(s.displayName)
+        useAppStore.getState().setCollabPaneVisible(s.collabPaneVisible === true)
+        const theme = parseTheme(s.theme)
+        useAppStore.getState().setTheme(theme)
+        applyUiTheme(theme)
+        const [launchFiles] = await Promise.all([
+          window.coterea.app.consumeLaunchFiles(),
+          editorP,
+          paneP
+        ])
+        await applyLoadedMonacoTheme(theme)
+        if (launchFiles.length > 0) await openPathsFromShell(launchFiles)
+        if (useAppStore.getState().tabs.length === 0) await createUntitled()
+        void import('./lib/monacoEnv').then((m) => m.preloadMonacoLanguages())
+        void enableCollab()
+      } catch (err) {
+        console.error(err)
+      }
     })()
   }
   return bootPromise
@@ -46,7 +56,6 @@ export function App(): React.JSX.Element {
   const dragging = useRef(false)
 
   useEffect(() => {
-    void preloadEditor()
     void bootApp().then(() => setBooted(true))
     const offCollab = attachCollabListeners()
     const offWatch = attachFileWatch()

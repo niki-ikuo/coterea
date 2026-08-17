@@ -9,7 +9,8 @@ export function preloadEditor(): Promise<typeof Docs> {
     loading = import('./monacoEnv').then(async (env) => {
       env.setupMonaco()
       env.applyMonacoTheme(useAppStore.getState().theme)
-      return import('./docs')
+      const docs = await import('./docs')
+      return docs
     })
   }
   return loading

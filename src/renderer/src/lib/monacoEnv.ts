@@ -1,5 +1,6 @@
-import type { Environment } from 'monaco-editor'
-import * as monaco from 'monaco-editor'
+import './monacoWorkerEnv'
+import 'monaco-editor/esm/vs/editor/editor.all.js'
+import * as monaco from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type { ThemeId } from '../../../shared/theme'
 
 export {
@@ -9,30 +10,25 @@ export {
   titleFromPath
 } from './fileMeta'
 
+export { monaco }
+
 let setup = false
+let languages: Promise<void> | null = null
+
+function loadLanguages(): Promise<void> {
+  if (!languages) {
+    languages = import('monaco-editor/esm/vs/basic-languages/monaco.contribution.js').then(() => {
+      for (const model of monaco.editor.getModels()) {
+        monaco.editor.setModelLanguage(model, model.getLanguageId())
+      }
+    })
+  }
+  return languages
+}
 
 export function setupMonaco(): void {
   if (setup) return
   setup = true
-
-  const env: Environment = {
-    getWorker(_workerId: string, label: string): Promise<Worker> {
-      if (label === 'json') {
-        return import('monaco-editor/esm/vs/language/json/json.worker?worker').then((m) => new m.default())
-      }
-      if (label === 'css' || label === 'scss' || label === 'less') {
-        return import('monaco-editor/esm/vs/language/css/css.worker?worker').then((m) => new m.default())
-      }
-      if (label === 'html' || label === 'handlebars' || label === 'razor') {
-        return import('monaco-editor/esm/vs/language/html/html.worker?worker').then((m) => new m.default())
-      }
-      if (label === 'typescript' || label === 'javascript') {
-        return import('monaco-editor/esm/vs/language/typescript/ts.worker?worker').then((m) => new m.default())
-      }
-      return import('monaco-editor/esm/vs/editor/editor.worker?worker').then((m) => new m.default())
-    }
-  }
-  ;(globalThis as typeof globalThis & { MonacoEnvironment: Environment }).MonacoEnvironment = env
 
   monaco.editor.defineTheme('coterea-win-light', {
     base: 'vs',
@@ -119,6 +115,10 @@ export function setupMonaco(): void {
       'editor.lineHighlightBackground': '#292524'
     }
   })
+}
+
+export function preloadMonacoLanguages(): Promise<void> {
+  return loadLanguages()
 }
 
 export function monacoThemeOf(theme: ThemeId): string {

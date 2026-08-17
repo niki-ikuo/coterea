@@ -1,6 +1,20 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import { parseTheme } from '../shared/theme'
 import type { AboutInfo, AppSettings, DocMeta, ReadFileResult, SaveResult, WriteFileResult } from '../shared/types'
 import type { EncodingId } from '../shared/encoding'
+
+const THEME_ARG = '--coterea-theme='
+
+function themeFromArgv(): string | null {
+  const arg = process.argv.find((item) => item.startsWith(THEME_ARG))
+  return arg ? arg.slice(THEME_ARG.length) : null
+}
+
+try {
+  document.documentElement.dataset.theme = parseTheme(themeFromArgv())
+} catch {
+  /* preload may run before document */
+}
 
 const api = {
   settings: {

@@ -1,7 +1,7 @@
 import { BrowserWindow } from 'electron'
 import { join } from 'path'
-import { is } from '@electron-toolkit/utils'
 import { THEME_TITLEBAR_OVERLAY, THEME_WINDOW_BG, TITLEBAR_HEIGHT, type ThemeId } from '../shared/theme'
+import { loadRenderer } from './loadRenderer'
 import appIcon from '../../resources/icon.png?asset'
 
 export const AUX_WINDOW_WIDTH = 480
@@ -48,7 +48,8 @@ export function createAuxWindow(options: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      additionalArguments: [`--coterea-theme=${options.theme}`]
     }
   })
   win.setMenuBarVisibility(false)
@@ -57,10 +58,6 @@ export function createAuxWindow(options: {
     win.show()
   })
 
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    void win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?view=${options.view}`)
-  } else {
-    void win.loadFile(join(__dirname, '../renderer/index.html'), { query: { view: options.view } })
-  }
+  loadRenderer(win, options.view)
   return win
 }

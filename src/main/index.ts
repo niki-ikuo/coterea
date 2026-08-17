@@ -1,6 +1,6 @@
-import { app, BrowserWindow, clipboard, ipcMain, Menu, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeTheme, shell } from 'electron'
 import { join } from 'path'
-import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { CollabHub } from './collab/hub'
 import { AppStore } from './store'
 import { buildMenu } from './menu'
@@ -11,7 +11,8 @@ import type { ControlMessage } from './collab/frame'
 import type { DocMeta } from '../shared/types'
 import { parseEncoding } from './encoding'
 import { DEFAULT_ENCODING } from '../shared/encoding'
-import { parseTheme, THEME_TITLEBAR_OVERLAY, THEME_WINDOW_BG, TITLEBAR_HEIGHT, type ThemeId } from '../shared/theme'
+import { isDarkTheme, parseTheme, THEME_TITLEBAR_OVERLAY, THEME_WINDOW_BG, TITLEBAR_HEIGHT, type ThemeId } from '../shared/theme'
+import { loadRenderer } from './loadRenderer'
 import { filesFromArgv } from './openFromShell'
 import { attachZoomShortcuts } from './zoom'
 import { getAboutInfo } from './about'
@@ -76,6 +77,7 @@ function titleBarOverlayOptions(theme: ThemeId): Electron.TitleBarOverlay {
 }
 
 function applyWindowChrome(win: BrowserWindow, theme: ThemeId): void {
+  nativeTheme.themeSource = isDarkTheme(theme) ? 'dark' : 'light'
   win.setBackgroundColor(THEME_WINDOW_BG[theme])
   if (process.platform === 'win32') {
     win.setTitleBarOverlay(titleBarOverlayOptions(theme))
@@ -84,6 +86,7 @@ function applyWindowChrome(win: BrowserWindow, theme: ThemeId): void {
 
 function createWindow(): void {
   const theme = parseTheme(store.getSettings().theme)
+  nativeTheme.themeSource = isDarkTheme(theme) ? 'dark' : 'light'
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -101,7 +104,8 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      additionalArguments: [`--coterea-theme=${theme}`]
     }
   })
   mainWindow.setMenuBarVisibility(false)
@@ -125,11 +129,7 @@ function createWindow(): void {
     mainWindow.webContents.send('app:close-request')
   })
 
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
-  } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
-  }
+  loadRenderer(mainWindow)
 }
 
 function registerIpc(): void {
@@ -140,6 +140,7 @@ function registerIpc(): void {
   ipcMain.handle('settings:set', async (_e, patch: Partial<import('../shared/types').AppSettings>) => {
     const next = await store.setSettings(patch)
     const theme = parseTheme(next.theme)
+    nativeTheme.themeSource = isDarkTheme(theme) ? 'dark' : 'light'
     for (const win of BrowserWindow.getAllWindows()) {
       if (win.isDestroyed()) continue
       applyWindowChrome(win, theme)

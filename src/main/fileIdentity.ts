@@ -2,7 +2,6 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { hostname, networkInterfaces } from 'os'
 import { isAbsolute, resolve as resolvePath } from 'path'
-import { inspectFileHandle, stripExtended } from './win32File'
 
 const execFileAsync = promisify(execFile)
 
@@ -119,6 +118,7 @@ function aliasesForLocal(absPath: string, shares: ShareMap): string[] {
 
 export async function resolveFileIds(filePath: string): Promise<string[]> {
   try {
+    const { inspectFileHandle, stripExtended } = await import('./win32File')
     const abs = isAbsolute(filePath) ? filePath : resolvePath(filePath)
     const info = inspectFileHandle(abs)
     if (!info) return []

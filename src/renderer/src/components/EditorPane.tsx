@@ -1,5 +1,5 @@
 import { lazy, Suspense, useLayoutEffect, useRef } from 'react'
-import * as monaco from 'monaco-editor'
+import * as monaco from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type { MarkdownPreviewHandle } from './MarkdownPreview'
 import { bindEditor, getTabDoc, getText, unbindEditor } from '../lib/docs'
 import { setActiveEditor } from '../lib/editorHandle'
