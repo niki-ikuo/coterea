@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { parseTheme } from '../shared/theme'
 import type { AboutInfo, AppSettings, ReadFileResult, SaveResult, WriteFileResult } from '../shared/types'
 import type { EncodingId } from '../shared/encoding'
+import type { UnsupportedOpen } from '../shared/openPolicy'
 
 const THEME_ARG = '--coterea-theme='
 
@@ -28,8 +29,9 @@ const api = {
   },
   fs: {
     open: (): Promise<string[]> => ipcRenderer.invoke('fs:open'),
-    read: (filePath: string, encoding?: EncodingId): Promise<ReadFileResult | null> =>
+    read: (filePath: string, encoding?: EncodingId): Promise<ReadFileResult | UnsupportedOpen | null> =>
       ipcRenderer.invoke('fs:read', filePath, encoding),
+    warnUnsupported: (items: UnsupportedOpen[]): Promise<void> => ipcRenderer.invoke('fs:warnUnsupported', items),
     identity: (filePath: string): Promise<string[]> => ipcRenderer.invoke('fs:identity', filePath),
     peek: (filePath: string, encoding?: EncodingId): Promise<string | null> =>
       ipcRenderer.invoke('fs:peek', filePath, encoding),
@@ -88,6 +90,7 @@ const api = {
     openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
     showSettings: (): Promise<void> => ipcRenderer.invoke('app:showSettings'),
     getAboutInfo: (): Promise<AboutInfo> => ipcRenderer.invoke('app:getAboutInfo'),
+    showCollabNotice: (): Promise<void> => ipcRenderer.invoke('app:showCollabNotice'),
     writeClipboard: (text: string): Promise<void> => ipcRenderer.invoke('app:writeClipboard', text),
     onMenu: (cb: (payload: { action: string; extra?: string }) => void) => {
       const listener = (_e: Electron.IpcRendererEvent, payload: { action: string; extra?: string }): void =>

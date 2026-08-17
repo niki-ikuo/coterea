@@ -93,6 +93,9 @@ export function AboutApp(): React.JSX.Element {
         <h1 className="about-name">{info?.name ?? 'Coterea'}</h1>
         <p className="about-meta">{info ? `バージョン ${info.version} (${info.flavor})` : ' '}</p>
         <p className="about-meta">{info ? formatBuiltAt(info.builtAt) : ' '}</p>
+        <p className="about-notice">
+          共同編集は同一 LAN 向けです。公開 Wi-Fi では使わないでください。
+        </p>
         <div className="dialog-actions">
           <button type="button" onClick={checkUpdates}>
             更新を確認

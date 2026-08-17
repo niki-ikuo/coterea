@@ -17,7 +17,8 @@ export interface CotereaApi {
   }
   fs: {
     open: () => Promise<string[]>
-    read: (filePath: string, encoding?: EncodingId) => Promise<ReadFileResult | null>
+    read: (filePath: string, encoding?: EncodingId) => Promise<ReadFileResult | import('./openPolicy').UnsupportedOpen | null>
+    warnUnsupported: (items: import('./openPolicy').UnsupportedOpen[]) => Promise<void>
     identity: (filePath: string) => Promise<string[]>
     peek: (filePath: string, encoding?: EncodingId) => Promise<string | null>
     stat: (filePath: string) => Promise<WriteFileResult | null>
@@ -65,6 +66,7 @@ export interface CotereaApi {
     openExternal: (url: string) => Promise<void>
     showSettings: () => Promise<void>
     getAboutInfo: () => Promise<AboutInfo>
+    showCollabNotice: () => Promise<void>
     writeClipboard: (text: string) => Promise<void>
     onMenu: (cb: (payload: { action: string; extra?: string }) => void) => () => void
     onCloseRequest: (cb: () => void) => () => void

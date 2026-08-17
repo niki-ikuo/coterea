@@ -81,6 +81,14 @@ export function buildMenu(
             click: () => send('theme', item.id)
           }))
         },
+        {
+          label: '次のタブ',
+          click: () => send('next-tab')
+        },
+        {
+          label: '前のタブ',
+          click: () => send('prev-tab')
+        },
         { type: 'separator' },
         { role: 'reload', label: '再読み込み' },
         { role: 'toggleDevTools', label: '開発者ツール' },
@@ -92,7 +100,14 @@ export function buildMenu(
     },
     {
       label: 'ヘルプ',
-      submenu: [{ label: 'バージョン情報', click: () => showAboutWindow(win, theme) }]
+      submenu: [
+        {
+          label: '共同編集について',
+          click: () => send('collab-notice')
+        },
+        { type: 'separator' },
+        { label: 'バージョン情報', click: () => showAboutWindow(win, theme) }
+      ]
     }
   ]
 

@@ -6,6 +6,7 @@ import { DEFAULT_ENCODING, type EncodingId } from '../../../shared/encoding'
 import { idsOverlap } from '../../../shared/fileSession'
 import { shouldPromptExternalChange, normalizeText } from '../../../shared/externalChange'
 import { REMOTE_SAVE_MS } from '../../../shared/types'
+import { isUnsupportedOpen, type UnsupportedOpen } from '../../../shared/openPolicy'
 
 function newId(): string {
   return crypto.randomUUID()
@@ -103,7 +104,7 @@ export async function reloadTabFromDisk(tabId: string): Promise<void> {
   const tab = useAppStore.getState().tabs.find((t) => t.id === tabId)
   if (!tab?.path) return
   const read = await window.coterea.fs.read(tab.path, tab.encoding)
-  if (!read) return
+  if (!read || isUnsupportedOpen(read)) return
   const { replaceText } = await preloadEditor()
   withSuppressDirty(() => replaceText(tabId, read.content))
   rememberSavedText(tabId, read.content)
@@ -171,8 +172,13 @@ export async function openPathsFromShell(paths: string[]): Promise<void> {
 }
 
 export async function openPaths(paths: string[]): Promise<void> {
+  const skipped: UnsupportedOpen[] = []
   for (const filePath of paths) {
     const read = await window.coterea.fs.read(filePath)
+    if (isUnsupportedOpen(read)) {
+      skipped.push(read)
+      continue
+    }
     if (!read) continue
     const current = useAppStore.getState()
     const existing = current.tabs.find(
@@ -209,6 +215,7 @@ export async function openPaths(paths: string[]): Promise<void> {
     watchPath(filePath)
     announceNewDoc(tab)
   }
+  if (skipped.length > 0) await window.coterea.fs.warnUnsupported(skipped)
 }
 
 export async function openDialog(): Promise<void> {
@@ -309,6 +316,19 @@ export async function handleAppClose(): Promise<void> {
   await window.coterea.app.confirmClose()
 }
 
+export function cycleTab(delta: number): void {
+  const { tabs, activeTabId, setActiveTabId } = useAppStore.getState()
+  if (tabs.length === 0) return
+  const index = Math.max(0, tabs.findIndex((t) => t.id === activeTabId))
+  const next = tabs[(index + delta + tabs.length) % tabs.length]
+  if (next) setActiveTabId(next.id)
+}
+
+export function activateTabAt(index: number): void {
+  const tab = useAppStore.getState().tabs[index]
+  if (tab) useAppStore.getState().setActiveTabId(tab.id)
+}
+
 export async function saveActive(saveAs = false): Promise<void> {
   const id = useAppStore.getState().activeTabId
   if (id) await saveTab(id, saveAs)
@@ -364,7 +384,7 @@ export async function reopenWithEncoding(tabId: string, encoding: EncodingId): P
     }
   }
   const read = await window.coterea.fs.read(tab.path, encoding)
-  if (!read) return
+  if (!read || isUnsupportedOpen(read)) return
   const { replaceText } = await preloadEditor()
   withSuppressDirty(() => replaceText(tabId, read.content))
   rememberSavedText(tabId, read.content)

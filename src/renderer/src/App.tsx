@@ -4,7 +4,7 @@ import { StatusBar } from './components/StatusBar'
 import { TabBar } from './components/TabBar'
 import { TitleBar } from './components/TitleBar'
 import { attachCollabListeners, enableCollab } from './lib/collab'
-import { closeTab, createUntitled, cycleMdView, handleAppClose, openDialog, openPaths, openPathsFromShell, saveActive, setMdView, toggleCollabPane, attachFileWatch } from './lib/actions'
+import { closeTab, createUntitled, cycleMdView, cycleTab, handleAppClose, openDialog, openPaths, openPathsFromShell, saveActive, setMdView, toggleCollabPane, attachFileWatch } from './lib/actions'
 import { preloadEditor, applyLoadedMonacoTheme } from './lib/editorReady'
 import { applyUiTheme } from './lib/uiTheme'
 import { getActiveEditor } from './lib/editorHandle'
@@ -87,6 +87,9 @@ export function App(): React.JSX.Element {
       if (action === 'save') void saveActive(false)
       if (action === 'save-as') void saveActive(true)
       if (action === 'close-tab' && tabId) void closeTab(tabId)
+      if (action === 'next-tab') cycleTab(1)
+      if (action === 'prev-tab') cycleTab(-1)
+      if (action === 'collab-notice') void window.coterea.app.showCollabNotice()
       if (action === 'undo' || action === 'redo') {
         void preloadEditor().then((docs) => {
           const doc = tabId ? docs.getTabDoc(tabId) : undefined

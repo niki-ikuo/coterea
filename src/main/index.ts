@@ -4,7 +4,7 @@ import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { CollabHub } from './collab/hub'
 import { AppStore } from './store'
 import { buildMenu } from './menu'
-import { confirmExternalChange, confirmUnsaved, openFiles, peekTextFile, readTextFile, saveAs, statTextFile, warnLargeFile, writeTextFile } from './fs'
+import { confirmExternalChange, confirmUnsaved, openFiles, peekTextFile, readTextFile, saveAs, showCollabLanNotice, statTextFile, warnLargeFile, warnUnsupportedOpen, writeTextFile } from './fs'
 import { FileWatcher } from './fileWatch'
 import { resolveFileIds } from './fileIdentity'
 import type { ControlMessage } from './collab/frame'
@@ -14,7 +14,9 @@ import { DEFAULT_ENCODING } from '../shared/encoding'
 import { isDarkTheme, parseTheme, THEME_TITLEBAR_OVERLAY, THEME_WINDOW_BG, TITLEBAR_HEIGHT, type ThemeId } from '../shared/theme'
 import { loadRenderer } from './loadRenderer'
 import { filesFromArgv } from './openFromShell'
+import { isUnsupportedOpen } from '../shared/openPolicy'
 import { attachZoomShortcuts } from './zoom'
+import { attachAppShortcuts } from './shortcuts'
 import { getAboutInfo } from './about'
 import { showSettingsWindow } from './settingsWindow'
 import appIcon from '../../resources/icon.png?asset'
@@ -113,6 +115,7 @@ function createWindow(): void {
   hub.attachWindow(mainWindow)
   fileWatcher.attachWindow(mainWindow)
   attachZoomShortcuts(mainWindow)
+  attachAppShortcuts(mainWindow, sendMenu)
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
@@ -155,6 +158,7 @@ function registerIpc(): void {
   })
   ipcMain.handle('fs:read', async (_e, filePath: string, encoding?: string) => {
     const result = await readTextFile(filePath, parseEncoding(encoding))
+    if (isUnsupportedOpen(result)) return result
     if (result.tooLarge && mainWindow) {
       const ok = await warnLargeFile(mainWindow, filePath)
       if (!ok) return null
@@ -162,6 +166,11 @@ function registerIpc(): void {
     await store.addRecent(filePath)
     await refreshMenu()
     return result
+  })
+  ipcMain.handle('fs:warnUnsupported', async (_e, items: unknown) => {
+    if (!mainWindow || !Array.isArray(items)) return
+    const list = items.filter(isUnsupportedOpen)
+    await warnUnsupportedOpen(mainWindow, list)
   })
   ipcMain.handle('fs:identity', async (_e, filePath: string) => {
     return resolveFileIds(filePath)
@@ -205,7 +214,12 @@ function registerIpc(): void {
     fileWatcher.noteOwnWrite(filePath, { mtimeMs: meta.mtimeMs, size: meta.size })
   })
   ipcMain.handle('collab:enable', async (_e, displayName: string) => {
-    return hub.enable(displayName)
+    const result = await hub.enable(displayName)
+    if (mainWindow && !store.getSettings().collabLanNoticeShown) {
+      await showCollabLanNotice(mainWindow)
+      await store.setSettings({ collabLanNoticeShown: true })
+    }
+    return result
   })
   ipcMain.handle('collab:setDisplayName', (_e, displayName: string) => {
     hub.setDisplayName(displayName)
@@ -231,6 +245,10 @@ function registerIpc(): void {
     showSettingsWindow(parent, parseTheme(store.getSettings().theme))
   })
   ipcMain.handle('app:getAboutInfo', () => getAboutInfo())
+  ipcMain.handle('app:showCollabNotice', async () => {
+    if (!mainWindow) return
+    await showCollabLanNotice(mainWindow)
+  })
   ipcMain.handle('app:writeClipboard', (_e, text: unknown) => {
     if (typeof text !== 'string') return
     clipboard.writeText(text)

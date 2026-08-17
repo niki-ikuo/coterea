@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useAppStore } from '../store'
 import { setCollabPaneVisible } from '../lib/actions'
 import { joinManual, leaveManualSession, startManualHost } from '../lib/collab'
+import { COLLAB_LAN_NOTICE_SHORT } from '../../../shared/collabNotice'
 
 export function RightPane(): React.JSX.Element {
   const displayName = useAppStore((s) => s.displayName)
@@ -153,9 +154,13 @@ export function RightPane(): React.JSX.Element {
       </section>
 
       <div className="pane-actions">
+        <p className="hint warn">{COLLAB_LAN_NOTICE_SHORT}</p>
         <p className="hint">
           同一LANのCotereaは自動でつながります。UDP が届かないときは、ハブ側の IP:ポートをコピーして手動接続してください。同期は同じ実体のファイルだけです。
         </p>
+        <button type="button" className="linkish" onClick={() => void window.coterea.app.showCollabNotice()}>
+          共同編集について
+        </button>
       </div>
     </aside>
   )

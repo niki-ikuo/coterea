@@ -14,6 +14,12 @@ import { DEFAULT_ENCODING, type EncodingId } from '../shared/encoding'
 import { decodeBuffer, detectEncoding, encodeText } from './encoding'
 import { resolveFileIds } from './fileIdentity'
 import { OPEN_FILTERS } from '../shared/fileTypes'
+import {
+  unsupportedKindLabel,
+  unsupportedOpen,
+  type UnsupportedOpen
+} from '../shared/openPolicy'
+import { COLLAB_LAN_NOTICE_BODY, COLLAB_LAN_NOTICE_TITLE } from '../shared/collabNotice'
 
 export async function openFiles(win: BrowserWindow): Promise<string[]> {
   const result = await dialog.showOpenDialog(win, {
@@ -24,9 +30,16 @@ export async function openFiles(win: BrowserWindow): Promise<string[]> {
   return result.canceled ? [] : result.filePaths
 }
 
-export async function readTextFile(filePath: string, encoding?: EncodingId): Promise<ReadFileResult> {
+export async function readTextFile(
+  filePath: string,
+  encoding?: EncodingId
+): Promise<ReadFileResult | UnsupportedOpen> {
   const info = await stat(filePath)
   const buf = await readFile(filePath)
+  const blocked = unsupportedOpen(filePath, buf)
+  if (blocked) {
+    return { unsupported: true, kind: blocked, path: filePath }
+  }
   const detected = detectEncoding(buf)
   const used = encoding ?? detected
   const content = decodeBuffer(buf, used)
@@ -137,4 +150,29 @@ export async function warnLargeFile(win: BrowserWindow, filePath: string): Promi
     cancelId: 1
   })
   return result.response === 0
+}
+
+export async function warnUnsupportedOpen(
+  win: BrowserWindow,
+  items: UnsupportedOpen[]
+): Promise<void> {
+  if (items.length === 0) return
+  const lines = items.map((item) => `${item.path}（${unsupportedKindLabel(item.kind)}）`)
+  await dialog.showMessageBox(win, {
+    type: 'info',
+    title: '開けません',
+    message: 'PDF、Office、画像などのバイナリは Coterea では開きません。',
+    detail: lines.join('\n'),
+    buttons: ['OK']
+  })
+}
+
+export async function showCollabLanNotice(win: BrowserWindow): Promise<void> {
+  await dialog.showMessageBox(win, {
+    type: 'warning',
+    title: COLLAB_LAN_NOTICE_TITLE,
+    message: COLLAB_LAN_NOTICE_TITLE,
+    detail: COLLAB_LAN_NOTICE_BODY,
+    buttons: ['OK']
+  })
 }

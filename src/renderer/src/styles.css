@@ -195,8 +195,15 @@ input {
   cursor: default;
 }
 
-.app-menu-item:hover {
+.app-menu-item:hover,
+.app-menu-item:focus-visible {
   background: color-mix(in srgb, var(--text) 8%, transparent);
+  outline: none;
+}
+
+.app-menu-item:focus-visible {
+  outline: 1px solid var(--accent, var(--text));
+  outline-offset: 0;
 }
 
 .logo-mark {
@@ -261,6 +268,11 @@ input {
 .tab:hover {
   color: var(--text);
   background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.tab:focus-visible {
+  outline: 1px solid var(--text);
+  outline-offset: -2px;
 }
 
 .tab.active {
@@ -864,6 +876,21 @@ button:disabled {
   margin: 4px 0 0;
 }
 
+.hint.warn {
+  color: var(--danger);
+  margin: 0;
+}
+
+.pane-actions .linkish {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--text);
+  text-decoration: underline;
+  font-size: 12px;
+}
+
 .statusbar {
   height: 26px;
   display: flex;
@@ -1117,6 +1144,14 @@ label {
   font-size: 28px;
   font-weight: 700;
   letter-spacing: 0.01em;
+}
+
+.about-notice {
+  margin: 12px 24px 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  max-width: 360px;
 }
 
 .about-meta {

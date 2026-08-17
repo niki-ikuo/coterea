@@ -1,4 +1,4 @@
-import { closeTab, createUntitled, setMdScrollSync, setMdView } from '../lib/actions'
+import { activateTabAt, closeTab, createUntitled, cycleTab, setMdScrollSync, setMdView } from '../lib/actions'
 import { isMarkdownLanguage } from '../lib/fileMeta'
 import { useAppStore, type MdView, type TabInfo } from '../store'
 
@@ -68,7 +68,7 @@ export function TabBar(): React.JSX.Element | null {
                 className={`tab${selected ? ' active' : ''}${tab.isDirty ? ' is-dirty' : ''}`}
                 role="tab"
                 aria-selected={selected}
-                tabIndex={0}
+                tabIndex={selected ? 0 : -1}
                 onClick={() => setActiveTabId(tab.id)}
                 onMouseDown={(e) => {
                   if (e.button === 1) e.preventDefault()
@@ -80,9 +80,42 @@ export function TabBar(): React.JSX.Element | null {
                   }
                 }}
                 onKeyDown={(e) => {
+                  const index = tabs.findIndex((t) => t.id === tab.id)
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault()
                     setActiveTabId(tab.id)
+                  }
+                  if (e.key === 'ArrowRight') {
+                    e.preventDefault()
+                    cycleTab(1)
+                    requestAnimationFrame(() => {
+                      document.querySelector<HTMLElement>('.tab.active')?.focus()
+                    })
+                  }
+                  if (e.key === 'ArrowLeft') {
+                    e.preventDefault()
+                    cycleTab(-1)
+                    requestAnimationFrame(() => {
+                      document.querySelector<HTMLElement>('.tab.active')?.focus()
+                    })
+                  }
+                  if (e.key === 'Home') {
+                    e.preventDefault()
+                    activateTabAt(0)
+                    requestAnimationFrame(() => {
+                      document.querySelector<HTMLElement>('.tab.active')?.focus()
+                    })
+                  }
+                  if (e.key === 'End') {
+                    e.preventDefault()
+                    activateTabAt(tabs.length - 1)
+                    requestAnimationFrame(() => {
+                      document.querySelector<HTMLElement>('.tab.active')?.focus()
+                    })
+                  }
+                  if (e.key === 'Delete' && index >= 0) {
+                    e.preventDefault()
+                    void closeTab(tab.id)
                   }
                 }}
               >

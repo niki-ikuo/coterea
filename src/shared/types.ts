@@ -42,6 +42,7 @@ export interface AppSettings {
   displayName: string
   theme: import('./theme').ThemeId
   collabPaneVisible: boolean
+  collabLanNoticeShown: boolean
 }
 
 export interface AboutInfo {

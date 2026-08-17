@@ -14,7 +14,12 @@ type Store = {
 
 function defaultStore(): Store {
   return {
-    settings: { displayName: userInfo().username || 'User', theme: DEFAULT_THEME, collabPaneVisible: false },
+    settings: {
+      displayName: userInfo().username || 'User',
+      theme: DEFAULT_THEME,
+      collabPaneVisible: false,
+      collabLanNoticeShown: false
+    },
     recentFiles: []
   }
 }
@@ -44,7 +49,8 @@ export class AppStore {
         ...this.data.settings,
         ...raw,
         theme: parseTheme(raw.theme),
-        collabPaneVisible: raw.collabPaneVisible === true
+        collabPaneVisible: raw.collabPaneVisible === true,
+        collabLanNoticeShown: raw.collabLanNoticeShown === true
       }
     } catch {
       /* first run */
@@ -70,6 +76,9 @@ export class AppStore {
       ...(patch.theme ? { theme: parseTheme(patch.theme) } : {}),
       ...(typeof patch.collabPaneVisible === 'boolean'
         ? { collabPaneVisible: patch.collabPaneVisible }
+        : {}),
+      ...(typeof patch.collabLanNoticeShown === 'boolean'
+        ? { collabLanNoticeShown: patch.collabLanNoticeShown }
         : {})
     }
     await writeFile(this.settingsPath(), JSON.stringify(this.data.settings, null, 2), 'utf8')

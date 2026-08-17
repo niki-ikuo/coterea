@@ -1,7 +1,7 @@
+import { useEffect, useRef } from 'react'
 import { PresenceBadge } from './PresenceBadge'
+import { APP_MENUS } from '../../../shared/appMenus'
 import appIcon from '../assets/icon.svg'
-
-const MENUS = ['ファイル', '編集', '表示', 'ヘルプ'] as const
 
 function popupMenu(label: string, el: HTMLElement): void {
   const rect = el.getBoundingClientRect()
@@ -9,23 +9,70 @@ function popupMenu(label: string, el: HTMLElement): void {
 }
 
 export function TitleBar(): React.JSX.Element {
+  const buttons = useRef<Array<HTMLButtonElement | null>>([])
+
+  const openAt = (index: number): void => {
+    const el = buttons.current[index]
+    const item = APP_MENUS[index]
+    if (el && item) popupMenu(item.label, el)
+  }
+
+  const focusAt = (index: number): void => {
+    const i = (index + APP_MENUS.length) % APP_MENUS.length
+    buttons.current[i]?.focus()
+  }
+
+  useEffect(() => {
+    return window.coterea.app.onMenu(({ action, extra }) => {
+      if (action === 'focus-app-menu') {
+        buttons.current[0]?.focus()
+      }
+      if (action === 'popup-app-menu' && extra) {
+        const index = APP_MENUS.findIndex((item) => item.label === extra)
+        if (index >= 0) openAt(index)
+      }
+    })
+  }, [])
+
   return (
     <header className="titlebar">
       <div className="titlebar-left">
         <img className="logo-mark" src={appIcon} alt="Coterea" width={18} height={18} />
         <nav className="app-menu" aria-label="アプリケーション">
-          {MENUS.map((label) => (
+          {APP_MENUS.map((item, index) => (
             <button
-              key={label}
+              key={item.id}
               type="button"
               className="app-menu-item"
-              onClick={(e) => popupMenu(label, e.currentTarget)}
+              ref={(el) => {
+                buttons.current[index] = el
+              }}
+              aria-keyshortcuts={`Alt+${item.key}`}
+              onClick={(e) => popupMenu(item.label, e.currentTarget)}
               onContextMenu={(e) => {
                 e.preventDefault()
-                popupMenu(label, e.currentTarget)
+                popupMenu(item.label, e.currentTarget)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowRight') {
+                  e.preventDefault()
+                  focusAt(index + 1)
+                }
+                if (e.key === 'ArrowLeft') {
+                  e.preventDefault()
+                  focusAt(index - 1)
+                }
+                if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  openAt(index)
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  e.currentTarget.blur()
+                }
               }}
             >
-              {label}
+              {item.label}({item.key})
             </button>
           ))}
         </nav>
