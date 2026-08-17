@@ -1,21 +1,35 @@
-import * as monaco from 'monaco-editor'
 import type { Environment } from 'monaco-editor'
-import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
-import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
-import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
-import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-import { languageFromFileName } from '../../../shared/fileTypes'
+import * as monaco from 'monaco-editor'
 import type { ThemeId } from '../../../shared/theme'
 
+export {
+  isMarkdownLanguage,
+  languageFromPath,
+  languageLabel,
+  titleFromPath
+} from './fileMeta'
+
+let setup = false
+
 export function setupMonaco(): void {
+  if (setup) return
+  setup = true
+
   const env: Environment = {
-    getWorker(_workerId: string, label: string): Worker {
-      if (label === 'json') return new JsonWorker()
-      if (label === 'css' || label === 'scss' || label === 'less') return new CssWorker()
-      if (label === 'html' || label === 'handlebars' || label === 'razor') return new HtmlWorker()
-      if (label === 'typescript' || label === 'javascript') return new TsWorker()
-      return new EditorWorker()
+    getWorker(_workerId: string, label: string): Promise<Worker> {
+      if (label === 'json') {
+        return import('monaco-editor/esm/vs/language/json/json.worker?worker').then((m) => new m.default())
+      }
+      if (label === 'css' || label === 'scss' || label === 'less') {
+        return import('monaco-editor/esm/vs/language/css/css.worker?worker').then((m) => new m.default())
+      }
+      if (label === 'html' || label === 'handlebars' || label === 'razor') {
+        return import('monaco-editor/esm/vs/language/html/html.worker?worker').then((m) => new m.default())
+      }
+      if (label === 'typescript' || label === 'javascript') {
+        return import('monaco-editor/esm/vs/language/typescript/ts.worker?worker').then((m) => new m.default())
+      }
+      return import('monaco-editor/esm/vs/editor/editor.worker?worker').then((m) => new m.default())
     }
   }
   ;(globalThis as typeof globalThis & { MonacoEnvironment: Environment }).MonacoEnvironment = env
@@ -111,36 +125,6 @@ export function monacoThemeOf(theme: ThemeId): string {
   return `coterea-${theme}`
 }
 
-export function applyUiTheme(theme: ThemeId): void {
-  document.documentElement.dataset.theme = theme
+export function applyMonacoTheme(theme: ThemeId): void {
   monaco.editor.setTheme(monacoThemeOf(theme))
-}
-
-export function isMarkdownLanguage(language: string): boolean {
-  return language === 'markdown'
-}
-
-export function languageFromPath(filePath: string | null | undefined): string {
-  if (!filePath) return 'plaintext'
-  const base = filePath.split(/[/\\]/).pop() ?? ''
-  const mapped = languageFromFileName(base)
-  if (mapped) return mapped
-  const lower = base.toLowerCase()
-  const ext = lower.includes('.') ? lower.slice(lower.lastIndexOf('.') + 1) : ''
-  const dotted = ext ? `.${ext}` : ''
-  for (const lang of monaco.languages.getLanguages()) {
-    if (lang.filenames?.some((name) => name.toLowerCase() === lower)) return lang.id
-    if (dotted && lang.extensions?.some((item) => item.toLowerCase() === dotted)) return lang.id
-  }
-  return 'plaintext'
-}
-
-export function languageLabel(language: string): string {
-  const lang = monaco.languages.getLanguages().find((item) => item.id === language)
-  return lang?.aliases?.[0] ?? language
-}
-
-export function titleFromPath(filePath: string | null, fallback = '無題'): string {
-  if (!filePath) return fallback
-  return filePath.split(/[/\\]/).pop() || fallback
 }

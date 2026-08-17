@@ -1,16 +1,38 @@
-import { useEffect, useRef, useState } from 'react'
-import { EditorPane } from './components/EditorPane'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { RightPane } from './components/RightPane'
 import { StatusBar } from './components/StatusBar'
 import { TabBar } from './components/TabBar'
 import { TitleBar } from './components/TitleBar'
 import { attachCollabListeners, enableCollab } from './lib/collab'
 import { closeTab, createUntitled, cycleMdView, handleAppClose, openDialog, openPaths, openPathsFromShell, saveActive, setMdView, toggleCollabPane, attachFileWatch } from './lib/actions'
-import { getTabDoc, setLocalUser } from './lib/docs'
-import { applyUiTheme } from './lib/monacoEnv'
+import { preloadEditor, applyLoadedMonacoTheme } from './lib/editorReady'
+import { applyUiTheme } from './lib/uiTheme'
 import { getActiveEditor } from './lib/editorHandle'
 import { useAppStore } from './store'
 import { parseTheme } from '../../shared/theme'
+
+const EditorPane = lazy(() => import('./components/EditorPane').then((m) => ({ default: m.EditorPane })))
+
+let bootPromise: Promise<void> | null = null
+
+function bootApp(): Promise<void> {
+  if (!bootPromise) {
+    bootPromise = (async () => {
+      const s = await window.coterea.settings.get()
+      useAppStore.getState().setDisplayName(s.displayName)
+      useAppStore.getState().setCollabPaneVisible(s.collabPaneVisible === true)
+      const theme = parseTheme(s.theme)
+      useAppStore.getState().setTheme(theme)
+      applyUiTheme(theme)
+      void enableCollab()
+      const launchFiles = await window.coterea.app.consumeLaunchFiles()
+      await preloadEditor()
+      if (launchFiles.length > 0) await openPathsFromShell(launchFiles)
+      if (useAppStore.getState().tabs.length === 0) await createUntitled()
+    })()
+  }
+  return bootPromise
+}
 
 export function App(): React.JSX.Element {
   const tabs = useAppStore((s) => s.tabs)
@@ -22,6 +44,8 @@ export function App(): React.JSX.Element {
   const dragging = useRef(false)
 
   useEffect(() => {
+    void preloadEditor()
+    void bootApp()
     const offCollab = attachCollabListeners()
     const offWatch = attachFileWatch()
     const offOpenFiles = window.coterea.app.onOpenFiles((paths) => {
@@ -32,32 +56,28 @@ export function App(): React.JSX.Element {
       const applied = parseTheme(next.theme)
       useAppStore.getState().setTheme(applied)
       applyUiTheme(applied)
+      void applyLoadedMonacoTheme(applied)
+      void preloadEditor().then((docs) => {
+        docs.setLocalUser({ name: next.displayName, color: useAppStore.getState().collab.localColor })
+      })
       void window.coterea.collab.setDisplayName(next.displayName)
     })
-    void (async () => {
-      const s = await window.coterea.settings.get()
-      useAppStore.getState().setDisplayName(s.displayName)
-      useAppStore.getState().setCollabPaneVisible(s.collabPaneVisible === true)
-      const theme = parseTheme(s.theme)
-      useAppStore.getState().setTheme(theme)
-      applyUiTheme(theme)
-      await enableCollab()
-      const launchFiles = await window.coterea.app.consumeLaunchFiles()
-      if (launchFiles.length > 0) await openPathsFromShell(launchFiles)
-      if (useAppStore.getState().tabs.length === 0) createUntitled()
-    })()
     const offMenu = window.coterea.app.onMenu((payload) => {
       const { action, extra } = payload
       const tabId = useAppStore.getState().activeTabId
-      const doc = tabId ? getTabDoc(tabId) : undefined
-      if (action === 'new') createUntitled()
+      if (action === 'new') void createUntitled()
       if (action === 'open') void openDialog()
       if (action === 'open-recent' && extra) void openPaths([extra])
       if (action === 'save') void saveActive(false)
       if (action === 'save-as') void saveActive(true)
       if (action === 'close-tab' && tabId) void closeTab(tabId)
-      if (action === 'undo') doc?.undo.undo()
-      if (action === 'redo') doc?.undo.redo()
+      if (action === 'undo' || action === 'redo') {
+        void preloadEditor().then((docs) => {
+          const doc = tabId ? docs.getTabDoc(tabId) : undefined
+          if (action === 'undo') doc?.undo.undo()
+          if (action === 'redo') doc?.undo.redo()
+        })
+      }
       if (action === 'find') {
         getActiveEditor()?.trigger('menu', 'actions.find', null)
       }
@@ -71,6 +91,7 @@ export function App(): React.JSX.Element {
           const applied = parseTheme(next.theme)
           useAppStore.getState().setTheme(applied)
           applyUiTheme(applied)
+          void applyLoadedMonacoTheme(applied)
         })
       }
       if (action === 'md-view' && extra) {
@@ -96,7 +117,10 @@ export function App(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
-    if (displayName) setLocalUser({ name: displayName, color: localColor })
+    if (!displayName) return
+    void preloadEditor().then((docs) => {
+      docs.setLocalUser({ name: displayName, color: localColor })
+    })
   }, [displayName, localColor])
 
   useEffect(() => {
@@ -116,6 +140,8 @@ export function App(): React.JSX.Element {
     }
   }, [])
 
+  const showEditor = Boolean(activeTabId && tabs.some((t) => t.id === activeTabId))
+
   return (
     <div className="app">
       <TitleBar />
@@ -123,8 +149,10 @@ export function App(): React.JSX.Element {
         <div className="left-pane" style={{ width: collabPaneVisible ? `${100 - rightWidth}%` : '100%' }}>
           <TabBar />
           <div className="editor-wrap">
-            {activeTabId && tabs.some((t) => t.id === activeTabId) ? (
-              <EditorPane tabId={activeTabId} />
+            {showEditor && activeTabId ? (
+              <Suspense fallback={<div className="editor-host" />}>
+                <EditorPane tabId={activeTabId} />
+              </Suspense>
             ) : (
               <div className="empty">
                 <svg className="empty-mark" viewBox="0 0 512 512" aria-hidden>
@@ -137,7 +165,7 @@ export function App(): React.JSX.Element {
                   <rect className="empty-mark-bar" x="169.27" y="338.13" width="121.43" height="37.13" rx="21.35" />
                 </svg>
                 <div className="empty-actions">
-                  <button type="button" className="empty-action" onClick={() => createUntitled()}>
+                  <button type="button" className="empty-action" onClick={() => void createUntitled()}>
                     <span>新規</span>
                     <span className="empty-keys">
                       <kbd>Ctrl</kbd>

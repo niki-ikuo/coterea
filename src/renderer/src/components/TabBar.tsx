@@ -1,5 +1,5 @@
 import { closeTab, createUntitled, setMdScrollSync, setMdView } from '../lib/actions'
-import { isMarkdownLanguage } from '../lib/monacoEnv'
+import { isMarkdownLanguage } from '../lib/fileMeta'
 import { useAppStore, type MdView, type TabInfo } from '../store'
 
 const MD_MODES: { id: MdView; label: string }[] = [

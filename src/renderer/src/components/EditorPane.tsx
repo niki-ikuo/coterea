@@ -1,13 +1,16 @@
-import { useEffect, useRef } from 'react'
+import { lazy, Suspense, useEffect, useRef } from 'react'
 import * as monaco from 'monaco-editor'
-import { MarkdownPreview, type MarkdownPreviewHandle } from './MarkdownPreview'
+import type { MarkdownPreviewHandle } from './MarkdownPreview'
 import { bindEditor, getTabDoc, getText, unbindEditor } from '../lib/docs'
 import { setActiveEditor } from '../lib/editorHandle'
 import { markDirty, sendPresence } from '../lib/collab'
-import { isMarkdownLanguage, monacoThemeOf } from '../lib/monacoEnv'
+import { isMarkdownLanguage } from '../lib/fileMeta'
+import { monacoThemeOf } from '../lib/monacoEnv'
 import { lineOfSection, parseMdSections, sectionAtLine } from '../lib/mdSync'
 import { setMdSplitPct } from '../lib/actions'
 import { useAppStore } from '../store'
+
+const MarkdownPreview = lazy(() => import('./MarkdownPreview').then((m) => ({ default: m.MarkdownPreview })))
 
 type Props = {
   tabId: string
@@ -137,11 +140,13 @@ export function EditorPane({ tabId }: Props): React.JSX.Element {
         />
       )}
       {showPreview && (
-        <MarkdownPreview
-          ref={previewRef}
-          tabId={tabId}
-          onSection={mdView === 'split' && scrollSync ? onPreviewSection : undefined}
-        />
+        <Suspense fallback={<div className="md-preview" />}>
+          <MarkdownPreview
+            ref={previewRef}
+            tabId={tabId}
+            onSection={mdView === 'split' && scrollSync ? onPreviewSection : undefined}
+          />
+        </Suspense>
       )}
     </div>
   )

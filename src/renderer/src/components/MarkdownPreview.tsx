@@ -105,3 +105,5 @@ export const MarkdownPreview = forwardRef<MarkdownPreviewHandle, Props>(function
     />
   )
 })
+
+MarkdownPreview.displayName = 'MarkdownPreview'

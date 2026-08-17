@@ -1,6 +1,6 @@
-import { languageFromPath, titleFromPath, isMarkdownLanguage } from './monacoEnv'
-import { createTabDoc, disposeTabDoc, getText, languageOf, replaceText, setLanguage } from './docs'
+import { languageFromPath, titleFromPath, isMarkdownLanguage } from './fileMeta'
 import { announceNewDoc, flushPendingSaves, isCollabActive, isTabSaving, publishManifest, withSuppressDirty } from './collab'
+import { preloadEditor } from './editorReady'
 import { useAppStore, type MdView, type TabInfo } from '../store'
 import { DEFAULT_ENCODING, type EncodingId } from '../../../shared/encoding'
 import { idsOverlap } from '../../../shared/fileSession'
@@ -14,7 +14,8 @@ function mdViewFor(language: string, current?: MdView): MdView {
   return current && current !== 'edit' ? current : 'split'
 }
 
-export function createUntitled(): TabInfo {
+export async function createUntitled(): Promise<TabInfo> {
+  const { createTabDoc } = await preloadEditor()
   const { displayName, collab } = useAppStore.getState()
   const id = newId()
   const tab: TabInfo = {
@@ -63,6 +64,7 @@ async function readDiskSnap(tab: TabInfo): Promise<DiskSnap> {
   const disk = await window.coterea.fs.peek(tab.path, tab.encoding)
   if (disk == null) return { status: 'unknown', disk: null }
   const nDisk = normalizeText(disk)
+  const { getText } = await preloadEditor()
   const nEd = normalizeText(getText(tab.id))
   return { status: nDisk === nEd ? 'match' : 'differ', disk: nDisk }
 }
@@ -87,6 +89,7 @@ export async function reloadTabFromDisk(tabId: string): Promise<void> {
   if (!tab?.path) return
   const read = await window.coterea.fs.read(tab.path, tab.encoding)
   if (!read) return
+  const { replaceText } = await preloadEditor()
   withSuppressDirty(() => replaceText(tabId, read.content))
   useAppStore.getState().setTabs((tabs) =>
     tabs.map((t) => (t.id === tabId ? { ...t, isDirty: false, saveError: null, encoding: read.encoding } : t))
@@ -165,7 +168,8 @@ export async function openPaths(paths: string[]): Promise<void> {
     }
     const { displayName, collab } = useAppStore.getState()
     const id = newId()
-    const language = languageOf(filePath)
+    const language = languageFromPath(filePath)
+    const { createTabDoc } = await preloadEditor()
     createTabDoc(id, read.content, language, { name: displayName, color: collab.localColor })
     const tab: TabInfo = {
       id,
@@ -203,6 +207,7 @@ export async function saveTab(tabId: string, saveAs = false): Promise<boolean> {
     path = result.path
   }
   try {
+    const { getText } = await preloadEditor()
     await window.coterea.fs.write(path, getText(tabId), tab.encoding)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -213,6 +218,7 @@ export async function saveTab(tabId: string, saveAs = false): Promise<boolean> {
   }
   const fileIds = await window.coterea.fs.identity(path)
   const language = languageFromPath(path)
+  const { setLanguage } = await preloadEditor()
   setLanguage(tabId, language)
   const previousPath = tab.path
   useAppStore.getState().setTabs((tabs) =>
@@ -251,6 +257,7 @@ export async function closeTab(tabId: string): Promise<void> {
     }
   }
   unwatchIfUnused(tab.path, tabId)
+  const { disposeTabDoc } = await preloadEditor()
   disposeTabDoc(tabId)
   const { tabs, activeTabId } = useAppStore.getState()
   const next = tabs.filter((t) => t.id !== tabId)
@@ -333,6 +340,7 @@ export async function reopenWithEncoding(tabId: string, encoding: EncodingId): P
   }
   const read = await window.coterea.fs.read(tab.path, encoding)
   if (!read) return
+  const { replaceText } = await preloadEditor()
   withSuppressDirty(() => replaceText(tabId, read.content))
   useAppStore.getState().setTabs((tabs) =>
     tabs.map((t) =>

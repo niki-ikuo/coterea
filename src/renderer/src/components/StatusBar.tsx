@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { encodingLabel, ENCODINGS, type EncodingId } from '../../../shared/encoding'
 import { reopenWithEncoding, setTabEncoding, cycleMdView } from '../lib/actions'
-import { isMarkdownLanguage, languageLabel } from '../lib/monacoEnv'
+import { isMarkdownLanguage, languageLabel } from '../lib/fileMeta'
 import { useAppStore } from '../store'
 
 export function StatusBar(): React.JSX.Element {
