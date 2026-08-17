@@ -1,4 +1,5 @@
 import { AUTOSAVE_MS, REMOTE_SAVE_MS, type PeerInfo, type WriteFileResult } from '../../../shared/types'
+import { normalizeText } from '../../../shared/externalChange'
 import {
   earlierPeer,
   fileIdsOf,
@@ -21,12 +22,12 @@ const lastSyncKey = new Map<string, string>()
 let syncGen = 0
 let suppressDirty = 0
 
-function normalizeText(text: string): string {
-  return text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-}
-
 export function rememberSavedText(tabId: string, text: string): void {
   lastSavedText.set(tabId, normalizeText(text))
+}
+
+export function savedTextOf(tabId: string): string | undefined {
+  return lastSavedText.get(tabId)
 }
 
 export function forgetSavedText(tabId: string): void {
@@ -238,7 +239,9 @@ export async function persistTab(tabId: string): Promise<boolean> {
       if (disk != null && normalizeText(disk) === normalizeText(next)) {
         rememberSavedText(tabId, next)
         markTabClean(tabId)
-        announceFileSaved(live)
+        const meta = await window.coterea.fs.stat(live.path)
+        if (meta) void window.coterea.fs.noteOwnWrite(live.path, meta)
+        announceFileSaved(live, meta ?? undefined)
         resolveRemoteSave(tabId, true)
         settle(true)
         return
@@ -515,8 +518,9 @@ export function handleCollabFrame(msg: Record<string, unknown>, binary: ArrayBuf
   } else if (type === 'yjs-sync-request' && docId) {
     sendFullState(docId)
   } else if (type === 'awareness' && docId) {
+    const fromPeer = typeof msg.peerId === 'string' ? msg.peerId : undefined
     withDocs((docs) => {
-      docs.applyAwarenessBytes(docId, toUint8(binary))
+      docs.applyAwarenessBytes(docId, toUint8(binary), fromPeer)
     })
   } else if (type === 'peer-joined' || type === 'became-host' || type === 'became-guest') {
     bumpSyncGeneration()
@@ -549,11 +553,11 @@ export function handleCollabFrame(msg: Record<string, unknown>, binary: ArrayBuf
     }
   } else if (type === 'peer-left') {
     const left = typeof msg.peerId === 'string' ? msg.peerId : null
-    if (left) remoteManifests.delete(left)
-    withDocs((docs) => {
-      docs.clearRemoteAwareness()
-    })
     if (left) {
+      remoteManifests.delete(left)
+      withDocs((docs) => {
+        docs.clearRemoteAwarenessForPeer(left)
+      })
       useAppStore.getState().patchCollab({
         peers: useAppStore.getState().collab.peers.filter((peer) => peer.id !== left)
       })
@@ -692,9 +696,11 @@ export function attachCollabListeners(): () => void {
 }
 
 export async function enableCollab(): Promise<void> {
-  const { displayName } = useAppStore.getState()
+  const { displayName, collab } = useAppStore.getState()
   const result = await window.coterea.collab.enable(displayName)
   useAppStore.getState().patchCollab({ localPeerId: result.localPeerId, status: 'solo', role: 'solo' })
+  const { setLocalUser } = await preloadEditor()
+  setLocalUser({ name: displayName, color: collab.localColor, peerId: result.localPeerId })
 }
 
 export function parseJoinEndpoint(raw: string): { host: string; port: number } | null {

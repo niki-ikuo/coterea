@@ -4,11 +4,11 @@ import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { CollabHub } from './collab/hub'
 import { AppStore } from './store'
 import { buildMenu } from './menu'
-import { confirmExternalChange, confirmUnsaved, openFiles, peekTextFile, readTextFile, saveAs, warnLargeFile, writeTextFile } from './fs'
+import { confirmExternalChange, confirmUnsaved, openFiles, peekTextFile, readTextFile, saveAs, statTextFile, warnLargeFile, writeTextFile } from './fs'
 import { FileWatcher } from './fileWatch'
 import { resolveFileIds } from './fileIdentity'
 import type { ControlMessage } from './collab/frame'
-import type { DocMeta, WriteFileResult } from '../shared/types'
+import type { WriteFileResult } from '../shared/types'
 import { parseEncoding } from './encoding'
 import { DEFAULT_ENCODING } from '../shared/encoding'
 import { isDarkTheme, parseTheme, THEME_TITLEBAR_OVERLAY, THEME_WINDOW_BG, TITLEBAR_HEIGHT, type ThemeId } from '../shared/theme'
@@ -169,6 +169,10 @@ function registerIpc(): void {
   ipcMain.handle('fs:peek', async (_e, filePath: string, encoding?: string) => {
     return peekTextFile(filePath, parseEncoding(encoding))
   })
+  ipcMain.handle('fs:stat', async (_e, filePath: string) => {
+    if (typeof filePath !== 'string' || !filePath) return null
+    return statTextFile(filePath)
+  })
   ipcMain.handle('fs:write', async (_e, filePath: string, content: string, encoding?: string) => {
     const result = await writeTextFile(filePath, content, parseEncoding(encoding) ?? DEFAULT_ENCODING)
     fileWatcher.noteOwnWrite(filePath, result)
@@ -205,9 +209,6 @@ function registerIpc(): void {
   })
   ipcMain.handle('collab:setDisplayName', (_e, displayName: string) => {
     hub.setDisplayName(displayName)
-  })
-  ipcMain.handle('collab:setDocs', (_e, docs: DocMeta[]) => {
-    hub.setSharedDocs(docs)
   })
   ipcMain.handle('collab:startHost', () => hub.startHost())
   ipcMain.handle('collab:join', (_e, host: string, port: number) => hub.joinManual(host, port))

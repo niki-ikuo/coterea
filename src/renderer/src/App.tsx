@@ -51,6 +51,7 @@ export function App(): React.JSX.Element {
   const collabPaneVisible = useAppStore((s) => s.collabPaneVisible)
   const displayName = useAppStore((s) => s.displayName)
   const localColor = useAppStore((s) => s.collab.localColor)
+  const localPeerId = useAppStore((s) => s.collab.localPeerId)
   const [rightWidth, setRightWidth] = useState(35)
   const [booted, setBooted] = useState(false)
   const dragging = useRef(false)
@@ -69,7 +70,11 @@ export function App(): React.JSX.Element {
       applyUiTheme(applied)
       void applyLoadedMonacoTheme(applied)
       void preloadEditor().then((docs) => {
-        docs.setLocalUser({ name: next.displayName, color: useAppStore.getState().collab.localColor })
+        docs.setLocalUser({
+          name: next.displayName,
+          color: useAppStore.getState().collab.localColor,
+          peerId: useAppStore.getState().collab.localPeerId ?? undefined
+        })
       })
       void window.coterea.collab.setDisplayName(next.displayName)
     })
@@ -130,9 +135,9 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     if (!displayName) return
     void preloadEditor().then((docs) => {
-      docs.setLocalUser({ name: displayName, color: localColor })
+      docs.setLocalUser({ name: displayName, color: localColor, peerId: localPeerId ?? undefined })
     })
-  }, [displayName, localColor])
+  }, [displayName, localColor, localPeerId])
 
   useEffect(() => {
     const onMove = (e: MouseEvent): void => {

@@ -53,6 +53,15 @@ export async function peekTextFile(filePath: string, encoding?: EncodingId): Pro
   }
 }
 
+export async function statTextFile(filePath: string): Promise<WriteFileResult | null> {
+  try {
+    const info = await stat(filePath)
+    return { mtimeMs: info.mtimeMs, size: info.size }
+  } catch {
+    return null
+  }
+}
+
 export async function writeTextFile(
   filePath: string,
   content: string,

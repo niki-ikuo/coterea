@@ -1,7 +1,6 @@
 import type {
   AboutInfo,
   AppSettings,
-  DocMeta,
   ExternalChangeDecision,
   PeerInfo,
   ReadFileResult,
@@ -21,6 +20,7 @@ export interface CotereaApi {
     read: (filePath: string, encoding?: EncodingId) => Promise<ReadFileResult | null>
     identity: (filePath: string) => Promise<string[]>
     peek: (filePath: string, encoding?: EncodingId) => Promise<string | null>
+    stat: (filePath: string) => Promise<WriteFileResult | null>
     write: (filePath: string, content: string, encoding?: EncodingId) => Promise<WriteFileResult>
     saveAs: (suggestedName?: string) => Promise<SaveResult>
     confirmUnsaved: (names: string[]) => Promise<'save' | 'discard' | 'cancel'>
@@ -36,7 +36,6 @@ export interface CotereaApi {
   collab: {
     enable: (displayName: string) => Promise<{ localPeerId: string }>
     setDisplayName: (displayName: string) => Promise<void>
-    setDocs: (docs: DocMeta[]) => Promise<void>
     startHost: () => Promise<{ ok: true; tcpPort: number } | { ok: false; error: string }>
     join: (host: string, port: number) => Promise<{ ok: true } | { ok: false; error: string }>
     leave: () => Promise<void>

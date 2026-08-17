@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { parseTheme } from '../shared/theme'
-import type { AboutInfo, AppSettings, DocMeta, ReadFileResult, SaveResult, WriteFileResult } from '../shared/types'
+import type { AboutInfo, AppSettings, ReadFileResult, SaveResult, WriteFileResult } from '../shared/types'
 import type { EncodingId } from '../shared/encoding'
 
 const THEME_ARG = '--coterea-theme='
@@ -33,6 +33,7 @@ const api = {
     identity: (filePath: string): Promise<string[]> => ipcRenderer.invoke('fs:identity', filePath),
     peek: (filePath: string, encoding?: EncodingId): Promise<string | null> =>
       ipcRenderer.invoke('fs:peek', filePath, encoding),
+    stat: (filePath: string): Promise<WriteFileResult | null> => ipcRenderer.invoke('fs:stat', filePath),
     write: (filePath: string, content: string, encoding?: EncodingId): Promise<WriteFileResult> =>
       ipcRenderer.invoke('fs:write', filePath, content, encoding),
     saveAs: (suggestedName?: string): Promise<SaveResult> => ipcRenderer.invoke('fs:saveAs', suggestedName),
@@ -59,7 +60,6 @@ const api = {
   collab: {
     enable: (displayName: string) => ipcRenderer.invoke('collab:enable', displayName),
     setDisplayName: (displayName: string) => ipcRenderer.invoke('collab:setDisplayName', displayName),
-    setDocs: (docs: DocMeta[]) => ipcRenderer.invoke('collab:setDocs', docs),
     startHost: () => ipcRenderer.invoke('collab:startHost'),
     join: (host: string, port: number) => ipcRenderer.invoke('collab:join', host, port),
     leave: () => ipcRenderer.invoke('collab:leave'),

@@ -3,6 +3,7 @@ import { basename, dirname } from 'path'
 import { stat } from 'fs/promises'
 import { BrowserWindow } from 'electron'
 import type { WriteFileResult } from '../shared/types'
+import { debounceMsFor, isOwnWrite, isUncPath } from '../shared/fileWatchPolicy'
 
 type DirWatch = {
   watcher: FSWatcher
@@ -14,15 +15,6 @@ type FileMeta = {
   lastOwn: { mtimeMs: number; size: number; at: number } | null
   lastSeen: { mtimeMs: number; size: number } | null
   fileWatcher: FSWatcher | null
-}
-
-const LOCAL_DEBOUNCE_MS = 500
-const UNC_DEBOUNCE_MS = 2000
-const LOCAL_OWN_GRACE_MS = 1500
-const UNC_OWN_GRACE_MS = 4000
-
-function isUncPath(filePath: string): boolean {
-  return filePath.startsWith('\\\\') || filePath.startsWith('//')
 }
 
 export class FileWatcher {
@@ -145,7 +137,7 @@ export class FileWatcher {
     const meta = this.files.get(filePath)
     if (!meta) return
     if (meta.timer) clearTimeout(meta.timer)
-    const wait = isUncPath(filePath) ? UNC_DEBOUNCE_MS : LOCAL_DEBOUNCE_MS
+    const wait = debounceMsFor(filePath)
     meta.timer = setTimeout(() => {
       void this.emit(filePath)
     }, wait)
@@ -168,11 +160,12 @@ export class FileWatcher {
   }
 
   private isOwnWrite(meta: FileMeta, filePath: string, mtimeMs: number, size: number): boolean {
-    const own = meta.lastOwn
-    if (!own) return false
-    if (own.mtimeMs === mtimeMs && own.size === size) return true
-    const grace = isUncPath(filePath) ? UNC_OWN_GRACE_MS : LOCAL_OWN_GRACE_MS
-    return Date.now() - own.at < grace
+    return isOwnWrite({
+      lastOwn: meta.lastOwn,
+      filePath,
+      mtimeMs,
+      size
+    })
   }
 
   private send(filePath: string, mtimeMs: number, size: number): void {

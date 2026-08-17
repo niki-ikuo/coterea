@@ -1,9 +1,11 @@
 import { languageFromPath, titleFromPath, isMarkdownLanguage } from './fileMeta'
-import { announceNewDoc, flushPendingSaves, forgetSavedText, isCollabActive, isTabSaving, persistTab, publishManifest, rememberSavedText, withSuppressDirty } from './collab'
+import { announceNewDoc, flushPendingSaves, forgetSavedText, isCollabActive, isTabSaving, persistTab, publishManifest, rememberSavedText, savedTextOf, withSuppressDirty } from './collab'
 import { preloadEditor } from './editorReady'
 import { useAppStore, type MdView, type TabInfo } from '../store'
 import { DEFAULT_ENCODING, type EncodingId } from '../../../shared/encoding'
 import { idsOverlap } from '../../../shared/fileSession'
+import { shouldPromptExternalChange, normalizeText } from '../../../shared/externalChange'
+import { REMOTE_SAVE_MS } from '../../../shared/types'
 
 function newId(): string {
   return crypto.randomUUID()
@@ -14,9 +16,13 @@ function mdViewFor(language: string, current?: MdView): MdView {
   return current && current !== 'edit' ? current : 'split'
 }
 
+function collabUser(): { name: string; color: string; peerId?: string } {
+  const { displayName, collab } = useAppStore.getState()
+  return { name: displayName, color: collab.localColor, peerId: collab.localPeerId ?? undefined }
+}
+
 export async function createUntitled(): Promise<TabInfo> {
   const { createTabDoc } = await preloadEditor()
-  const { displayName, collab } = useAppStore.getState()
   const id = newId()
   const tab: TabInfo = {
     id,
@@ -32,7 +38,7 @@ export async function createUntitled(): Promise<TabInfo> {
     mdScrollSync: true,
     saveError: null
   }
-  createTabDoc(id, '', 'plaintext', { name: displayName, color: collab.localColor })
+  createTabDoc(id, '', 'plaintext', collabUser())
   rememberSavedText(id, '')
   useAppStore.getState().setTabs((tabs) => [...tabs, tab])
   useAppStore.getState().setActiveTabId(id)
@@ -54,20 +60,26 @@ function samePath(a: string, b: string): boolean {
   return a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase()
 }
 
-function normalizeText(text: string): string {
-  return text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-}
-
-type DiskSnap = { status: 'match' | 'differ' | 'unknown'; disk: string | null }
+type DiskSnap = { status: 'match' | 'differ' | 'unknown'; disk: string | null; editor: string }
 
 async function readDiskSnap(tab: TabInfo): Promise<DiskSnap> {
-  if (!tab.path) return { status: 'match', disk: '' }
-  const disk = await window.coterea.fs.peek(tab.path, tab.encoding)
-  if (disk == null) return { status: 'unknown', disk: null }
-  const nDisk = normalizeText(disk)
   const { getText } = await preloadEditor()
-  const nEd = normalizeText(getText(tab.id))
-  return { status: nDisk === nEd ? 'match' : 'differ', disk: nDisk }
+  const editor = normalizeText(getText(tab.id))
+  if (!tab.path) return { status: 'match', disk: '', editor }
+  const disk = await window.coterea.fs.peek(tab.path, tab.encoding)
+  if (disk == null) return { status: 'unknown', disk: null, editor }
+  const nDisk = normalizeText(disk)
+  return { status: nDisk === editor ? 'match' : 'differ', disk: nDisk, editor }
+}
+
+function isExternalChange(tab: TabInfo, snap: DiskSnap, stillSaving: boolean): boolean {
+  return shouldPromptExternalChange({
+    diskStatus: snap.status,
+    disk: snap.disk,
+    editor: snap.editor,
+    lastSaved: savedTextOf(tab.id),
+    stillSaving
+  })
 }
 
 function tabByPath(filePath: string): TabInfo | undefined {
@@ -78,11 +90,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function waitUntilQuiet(tabId: string): Promise<void> {
-  for (let i = 0; i < 10; i++) {
-    if (!isTabSaving(tabId)) return
-    await sleep(200)
+async function waitUntilQuiet(tabId: string): Promise<boolean> {
+  const deadline = Date.now() + REMOTE_SAVE_MS + 500
+  while (Date.now() < deadline) {
+    if (!isTabSaving(tabId)) return true
+    await sleep(100)
   }
+  return !isTabSaving(tabId)
 }
 
 export async function reloadTabFromDisk(tabId: string): Promise<void> {
@@ -104,20 +118,23 @@ export function attachFileWatch(): () => void {
     const key = path.replace(/\\/g, '/').toLowerCase()
     const tab = tabByPath(path)
     if (!tab || prompting.has(key)) return
-    await waitUntilQuiet(tab.id)
+    const quiet = await waitUntilQuiet(tab.id)
+    if (!quiet) return
     const first = await readDiskSnap(tab)
-    if (first.status !== 'differ') return
+    if (!isExternalChange(tab, first, isTabSaving(tab.id))) return
     await sleep(isCollabActive() ? 1000 : 400)
     const mid = tabByPath(path)
     if (!mid) return
-    await waitUntilQuiet(mid.id)
+    const midQuiet = await waitUntilQuiet(mid.id)
+    if (!midQuiet) return
     const second = await readDiskSnap(mid)
-    if (second.status !== 'differ' || second.disk == null) return
+    if (!isExternalChange(mid, second, isTabSaving(mid.id)) || second.disk == null) return
     await sleep(400)
     const latest = tabByPath(path)
     if (!latest) return
+    if (isTabSaving(latest.id)) return
     const third = await readDiskSnap(latest)
-    if (third.status !== 'differ' || third.disk == null) return
+    if (!isExternalChange(latest, third, false) || third.disk == null) return
     if (third.disk !== second.disk) return
     if (prompting.has(key)) return
     prompting.add(key)
@@ -168,11 +185,10 @@ export async function openPaths(paths: string[]): Promise<void> {
       useAppStore.getState().setActiveTabId(existing.id)
       continue
     }
-    const { displayName, collab } = useAppStore.getState()
     const id = newId()
     const language = languageFromPath(filePath)
     const { createTabDoc } = await preloadEditor()
-    createTabDoc(id, read.content, language, { name: displayName, color: collab.localColor })
+    createTabDoc(id, read.content, language, collabUser())
     rememberSavedText(id, read.content)
     const tab: TabInfo = {
       id,

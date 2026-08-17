@@ -4,7 +4,7 @@ import { networkInterfaces } from 'os'
 import { BrowserWindow } from 'electron'
 import { FrameReader, encodeFrame, type ControlMessage } from './frame'
 import { LanDiscovery, electHub, type Presence } from './discovery'
-import { PEER_COLORS, type DocMeta, type PeerInfo } from '../../shared/types'
+import { PEER_COLORS, type PeerInfo } from '../../shared/types'
 
 type Role = 'solo' | 'host' | 'guest'
 
@@ -54,7 +54,6 @@ export class CollabHub {
   private hostId: string | null = null
   private clients = new Map<string, TrackedSocket>()
   private discovery = new LanDiscovery()
-  private docs: DocMeta[] = []
   private win: BrowserWindow | null = null
   private leaving = false
   private connecting = false
@@ -98,13 +97,6 @@ export class CollabHub {
     this.displayName = displayName
     this.publishPresence()
     this.emitState()
-  }
-
-  setSharedDocs(docs: DocMeta[]): void {
-    this.docs = docs
-    if (this.role === 'host') {
-      this.broadcast({ type: 'docs', docs }, undefined, null)
-    }
   }
 
   sendFromRenderer(msg: ControlMessage, binary?: Buffer): void {
@@ -301,13 +293,12 @@ export class CollabHub {
               if (frame.msg.type === 'welcome' && !this.welcomed) {
                 this.welcomed = true
                 clearTimeout(timer)
-                this.docs = (frame.msg.docs as DocMeta[]) ?? this.docs
                 if (typeof frame.msg.color === 'string') this.localColor = frame.msg.color
                 this.connectError = null
                 this.netHint = null
                 this.stuckSince = null
                 this.emitState()
-                this.sendToRenderer({ type: 'became-guest', docs: this.docs }, Buffer.alloc(0))
+                this.sendToRenderer({ type: 'became-guest' }, Buffer.alloc(0))
                 resolve()
               } else {
                 this.sendToRenderer(frame.msg, frame.binary)
@@ -430,7 +421,6 @@ export class CollabHub {
               encodeFrame({
                 type: 'welcome',
                 color,
-                docs: this.docs,
                 hostId: this.localPeerId
               })
             )
@@ -463,6 +453,7 @@ export class CollabHub {
       if (this.leaving) return
       this.emitState()
       this.sendToRenderer({ type: 'peer-left', peerId: tracked.id }, Buffer.alloc(0))
+      this.broadcast({ type: 'peer-left', peerId: tracked.id }, undefined, tracked.id)
     })
     socket.on('error', () => socket.destroy())
   }

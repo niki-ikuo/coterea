@@ -2,6 +2,12 @@ import * as monaco from 'monaco-editor/esm/vs/editor/editor.api.js'
 import * as Y from 'yjs'
 import { MonacoBinding } from 'y-monaco'
 import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
+import {
+  AwarenessPeerIndex,
+  clientIdsForPeer,
+  collectAwarenessClientIds,
+  type AwarenessUser
+} from '../../../shared/awarenessPeers'
 import { languageFromPath } from './fileMeta'
 
 export type TabDoc = {
@@ -18,7 +24,19 @@ export type TabDoc = {
 const docs = new Map<string, TabDoc>()
 const pendingSync = new Map<string, Uint8Array>()
 const pendingAwareness = new Map<string, Uint8Array>()
+const awarenessIndex = new Map<string, AwarenessPeerIndex>()
 const LOAD_ORIGIN = 'load'
+
+type LocalUser = { name: string; color: string; peerId?: string }
+
+function indexOf(id: string): AwarenessPeerIndex {
+  let index = awarenessIndex.get(id)
+  if (!index) {
+    index = new AwarenessPeerIndex()
+    awarenessIndex.set(id, index)
+  }
+  return index
+}
 
 function createUndoManager(ytext: Y.Text): Y.UndoManager {
   return new Y.UndoManager(ytext, { trackedOrigins: new Set() })
@@ -75,7 +93,7 @@ export function createTabDoc(
   id: string,
   content: string,
   language: string,
-  user: { name: string; color: string }
+  user: LocalUser
 ): TabDoc {
   const existing = docs.get(id)
   if (existing) return existing
@@ -123,9 +141,13 @@ function flushPendingAwareness(tab: TabDoc): void {
   if (queuedAw) applyAwarenessUpdate(tab.awareness, queuedAw, 'remote')
 }
 
-function localUserOf(tab: TabDoc): { name: string; color: string } {
-  const user = tab.awareness.getLocalState()?.user as { name?: string; color?: string } | undefined
-  return { name: user?.name ?? '自分', color: user?.color ?? '#e7c9a5' }
+function localUserOf(tab: TabDoc): LocalUser {
+  const user = tab.awareness.getLocalState()?.user as AwarenessUser | undefined
+  return {
+    name: user?.name ?? '自分',
+    color: user?.color ?? '#e7c9a5',
+    peerId: user?.peerId
+  }
 }
 
 /** 正本のスナップショットで Y.Doc を置き換える。独立初期化した文書同士のマージはしない。 */
@@ -140,6 +162,7 @@ export function applyFullSync(id: string, update: Uint8Array): void {
   resetBinding(tab, null)
   tab.awareness.destroy()
   tab.ydoc.destroy()
+  awarenessIndex.delete(id)
 
   const ydoc = new Y.Doc()
   Y.applyUpdate(ydoc, update, 'remote')
@@ -177,6 +200,11 @@ export function retargetTabDoc(oldId: string, newId: string): void {
     docs.delete(oldId)
     old.id = newId
     docs.set(newId, old)
+    const index = awarenessIndex.get(oldId)
+    if (index) {
+      awarenessIndex.delete(oldId)
+      awarenessIndex.set(newId, index)
+    }
     flushPending(old)
     return
   }
@@ -287,16 +315,23 @@ export function stashSync(id: string, update: Uint8Array): void {
   applyFullSync(id, update)
 }
 
-export function applyAwarenessBytes(id: string, update: Uint8Array): void {
+export function applyAwarenessBytes(id: string, update: Uint8Array, fromPeerId?: string): void {
   const tab = docs.get(id)
   if (!tab) {
     pendingAwareness.set(id, update)
     return
   }
+  const previous = new Set(tab.awareness.getStates().keys())
   applyAwarenessUpdate(tab.awareness, update, 'remote')
+  if (fromPeerId) {
+    indexOf(id).note(
+      fromPeerId,
+      collectAwarenessClientIds(tab.awareness.getStates(), fromPeerId, previous, tab.awareness.clientID)
+    )
+  }
 }
 
-export function setLocalUser(user: { name: string; color: string }): void {
+export function setLocalUser(user: LocalUser): void {
   for (const tab of docs.values()) {
     tab.awareness.setLocalStateField('user', user)
   }
@@ -305,6 +340,18 @@ export function setLocalUser(user: { name: string; color: string }): void {
 export function clearRemoteAwareness(): void {
   for (const tab of docs.values()) {
     const gone = [...tab.awareness.getStates().keys()].filter((id) => id !== tab.awareness.clientID)
+    if (gone.length > 0) removeAwarenessStates(tab.awareness, gone, 'local')
+    refreshRemoteCursorStyles(tab.awareness)
+    awarenessIndex.get(tab.id)?.clear()
+  }
+}
+
+export function clearRemoteAwarenessForPeer(peerId: string): void {
+  if (!peerId) return
+  for (const tab of docs.values()) {
+    const fromUser = clientIdsForPeer(tab.awareness.getStates(), peerId, tab.awareness.clientID)
+    const fromIndex = indexOf(tab.id).forgetPeer(peerId)
+    const gone = [...new Set([...fromUser, ...fromIndex])].filter((id) => id !== tab.awareness.clientID)
     if (gone.length > 0) removeAwarenessStates(tab.awareness, gone, 'local')
     refreshRemoteCursorStyles(tab.awareness)
   }
@@ -320,6 +367,7 @@ export function disposeTabDoc(id: string): void {
   docs.delete(id)
   pendingSync.delete(id)
   pendingAwareness.delete(id)
+  awarenessIndex.delete(id)
 }
 
 export function languageOf(path: string | null): string {
