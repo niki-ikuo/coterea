@@ -53,6 +53,8 @@ export function TabBar(): React.JSX.Element | null {
   const setActiveTabId = useAppStore((s) => s.setActiveTabId)
   const active = tabs.find((t) => t.id === activeTabId)
 
+  if (tabs.length === 0) return null
+
   return (
     <>
       <div className="tabbar">
