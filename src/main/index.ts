@@ -19,9 +19,16 @@ import { attachZoomShortcuts } from './zoom'
 import { attachAppShortcuts } from './shortcuts'
 import { getAboutInfo } from './about'
 import { showSettingsWindow } from './settingsWindow'
+import { SecretStore } from './secrets'
+import { ChatHistoryStore } from './chatStore'
+import { abortAi, aiStatusFrom, resolveToolResult, startAiChat } from './ai/run'
+import type { ChatHistoryFile } from '../shared/ai'
+import type { AiChatRequest } from '../shared/api'
 import appIcon from '../../resources/icon.png?asset'
 
 const store = new AppStore()
+const secrets = new SecretStore()
+const chatHistory = new ChatHistoryStore()
 const hub = new CollabHub()
 const fileWatcher = new FileWatcher()
 let mainWindow: BrowserWindow | null = null
@@ -150,6 +157,11 @@ function registerIpc(): void {
       if (!win.webContents.isDestroyed()) win.webContents.send('settings:changed', next)
     }
     await refreshMenu()
+    const status = aiStatusFrom(next, await secrets.hasKey())
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed() || win.webContents.isDestroyed()) continue
+      win.webContents.send('ai:status', status)
+    }
     return next
   })
   ipcMain.handle('fs:open', async () => {
@@ -276,6 +288,39 @@ function registerIpc(): void {
   ipcMain.handle('recent:get', async () => {
     await store.load()
     return store.getRecent()
+  })
+  ipcMain.handle('ai:status', async () => {
+    await store.load()
+    return aiStatusFrom(store.getSettings(), await secrets.hasKey())
+  })
+  ipcMain.handle('ai:setKey', async (_e, key: unknown) => {
+    await secrets.setKey(typeof key === 'string' ? key : '')
+    await store.load()
+    const status = aiStatusFrom(store.getSettings(), await secrets.hasKey())
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send('ai:status', status)
+    }
+    return status
+  })
+  ipcMain.handle('ai:start', async (event, req: AiChatRequest) => {
+    if (!req || typeof req.requestId !== 'string' || !req.requestId) {
+      return { ok: false, error: 'requestId がありません' }
+    }
+    return startAiChat(event.sender, {
+      getSettings: () => store.getSettings(),
+      getKey: () => secrets.load()
+    }, req)
+  })
+  ipcMain.handle('ai:stop', async (_e, requestId: unknown) => {
+    if (typeof requestId === 'string') abortAi(requestId)
+  })
+  ipcMain.on('ai:tool-result', (_e, payload: { requestId?: string; callId?: string; result?: string }) => {
+    if (!payload || typeof payload.requestId !== 'string' || typeof payload.callId !== 'string') return
+    resolveToolResult(payload.requestId, payload.callId, typeof payload.result === 'string' ? payload.result : '')
+  })
+  ipcMain.handle('chat:get', async () => chatHistory.load())
+  ipcMain.handle('chat:set', async (_e, history: ChatHistoryFile) => {
+    await chatHistory.save(history)
   })
 }
 

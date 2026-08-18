@@ -1,183 +1,278 @@
 import { useEffect, useRef, useState } from 'react'
-import { useAppStore } from '../store'
 import { setCollabPaneVisible } from '../lib/actions'
-import { joinManual, leaveManualSession, startManualHost } from '../lib/collab'
-import { COLLAB_LAN_NOTICE_SHORT } from '../../../shared/collabNotice'
+import {
+  applyAllPending,
+  applyProposal,
+  closeThread,
+  newThread,
+  rejectProposal,
+  renameThread,
+  selectThread,
+  sendChat,
+  setDraft,
+  setThreadMode,
+  stopChat
+} from '../lib/chat'
+import { useAppStore } from '../store'
+import { CollabFold } from './CollabFold'
+import { diffLines, previewTexts } from '../../../shared/lineDiff'
+import type { ChatMessage, ChatMode, ProposedEdit } from '../../../shared/ai'
+
+const MODES: { id: ChatMode; label: string }[] = [
+  { id: 'ask', label: 'Ask' },
+  { id: 'edit', label: 'Edit' },
+  { id: 'agent', label: 'Agent' }
+]
 
 export function RightPane(): React.JSX.Element {
-  const displayName = useAppStore((s) => s.displayName)
+  const chat = useAppStore((s) => s.chat)
+  const busy = useAppStore((s) => s.chatBusy)
+  const configured = useAppStore((s) => s.aiConfigured)
   const collab = useAppStore((s) => s.collab)
+  const [collabOpen, setCollabOpen] = useState(false)
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const thread = chat.threads.find((t) => t.id === chat.activeId) ?? chat.threads[0]
   const connected = collab.status === 'hosting' || collab.status === 'joined'
-  const participants = connected
-    ? collab.peers
-    : collab.peers.filter((peer) => peer.id === collab.localPeerId)
-  const count = Math.max(participants.length, 1)
-  const [endpoint, setEndpoint] = useState('')
-  const [joining, setJoining] = useState(false)
-  const [copied, setCopied] = useState<string | null>(null)
-  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    return () => {
-      if (copiedTimer.current) clearTimeout(copiedTimer.current)
-    }
-  }, [])
-
-  const onCopyEndpoint = async (item: string): Promise<void> => {
-    await window.coterea.app.writeClipboard(item)
-    setCopied(item)
-    if (copiedTimer.current) clearTimeout(copiedTimer.current)
-    copiedTimer.current = setTimeout(() => setCopied(null), 1500)
-  }
-  const endpoints =
-    collab.status === 'hosting' && collab.tcpPort > 0
-      ? collab.listenAddresses.map((ip) => `${ip}:${collab.tcpPort}`)
-      : []
-
-  const onJoin = async (): Promise<void> => {
-    setJoining(true)
-    try {
-      await joinManual(endpoint)
-    } finally {
-      setJoining(false)
-    }
-  }
+  const people = connected ? Math.max(collab.peers.length, 1) : 1
+  const pending = thread?.messages.filter((m) => m.proposal && m.proposalStatus === 'pending') ?? []
 
   return (
-    <aside className="right-pane">
-      <header className="pane-header">
-        <div>
-          <div className="pane-kicker">共同編集</div>
-          <h2>セッション</h2>
+    <aside className="right-pane chat-pane">
+      <header className="pane-header chat-header">
+        <div className="chat-header-main">
+          <div className="pane-kicker">会話</div>
+          <div className="chat-header-row">
+            <span className="chat-collab-summary">{headerLabel(collab, people)}</span>
+            <button
+              type="button"
+              className={`collab-toggle${collabOpen ? ' open' : ''}`}
+              aria-expanded={collabOpen}
+              onClick={() => setCollabOpen((v) => !v)}
+            >
+              共同編集{collabOpen ? '▴' : '▾'}
+            </button>
+          </div>
         </div>
         <button type="button" className="pane-hide" onClick={() => void setCollabPaneVisible(false)}>
           非表示
         </button>
       </header>
 
-      <section className="pane-card">
-        <div className="label">自分の表示名</div>
-        <button className="name-btn" type="button" onClick={() => void window.coterea.app.showSettings()}>
-          <span className="swatch" style={{ background: collab.localColor }} />
-          {displayName || '未設定'}
-        </button>
-      </section>
-
-      <section className="pane-card">
-        <div className="label">状態</div>
-        <p className="status-line">
-          {collab.status === 'solo' &&
-            (collab.udpPeerCount > 0
-              ? 'LAN上の相手を検出。接続を準備しています'
-              : '一人で編集中（共同編集サーバーは起動していません）')}
-          {collab.status === 'connecting' && '接続中…'}
-          {collab.status === 'hosting' && `ハブ（先にいた人）· ${count}人`}
-          {collab.status === 'joined' && `参加中 · ${count}人`}
-          {collab.status === 'error' && (collab.error ?? 'エラー')}
-        </p>
-        {collab.netHint && <p className={collab.error ? 'error' : 'warn'}>{collab.netHint}</p>}
-        {endpoints.length > 0 && (
-          <div className="listen-list">
-            <div className="label">待ち受け（手動接続用）</div>
-            {endpoints.map((item) => (
-              <div className="invite" key={item}>
-                <code>{item}</code>
-                <button
-                  type="button"
-                  className={copied === item ? 'is-copied' : undefined}
-                  onClick={() => void onCopyEndpoint(item)}
+      {thread && (
+        <div className="chat-tabbar" role="tablist">
+          <div className="chat-tabbar-scroll">
+            {chat.threads.map((item) => {
+              const selected = item.id === thread.id
+              return (
+                <div
+                  key={item.id}
+                  className={`chat-tab${selected ? ' active' : ''}`}
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => selectThread(item.id)}
+                  onDoubleClick={() => setRenaming(item.id)}
                 >
-                  {copied === item ? 'コピー済み' : 'コピー'}
-                </button>
-              </div>
+                  {renaming === item.id ? (
+                    <input
+                      className="chat-rename"
+                      defaultValue={item.title}
+                      autoFocus
+                      onClick={(e) => e.stopPropagation()}
+                      onBlur={(e) => {
+                        renameThread(item.id, e.target.value)
+                        setRenaming(null)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          renameThread(item.id, (e.target as HTMLInputElement).value)
+                          setRenaming(null)
+                        }
+                        if (e.key === 'Escape') setRenaming(null)
+                      }}
+                    />
+                  ) : (
+                    <span className="chat-tab-title" title={item.title}>
+                      {item.title}
+                    </span>
+                  )}
+                  <button
+                    className="tab-close"
+                    type="button"
+                    aria-label={`${item.title} を閉じる`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      closeThread(item.id)
+                    }}
+                  >
+                    <span className="tab-close-x" aria-hidden>
+                      ×
+                    </span>
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+          <button className="tab-add" type="button" title="新しい会話" aria-label="新しい会話" onClick={() => newThread()}>
+            +
+          </button>
+        </div>
+      )}
+
+      {collabOpen ? <CollabFold /> : <ChatLog messages={thread?.messages ?? []} />}
+
+      {!collabOpen && pending.length > 1 && (
+        <div className="chat-batch">
+          <button type="button" className="primary" onClick={() => void applyAllPending(false)}>
+            一括適用（{pending.length}）
+          </button>
+        </div>
+      )}
+
+      {!collabOpen && thread && (
+        <div className="chat-composer">
+          <div className="md-seg chat-modes" role="group" aria-label="モード">
+            {MODES.map((mode) => (
+              <button
+                key={mode.id}
+                type="button"
+                className={thread.mode === mode.id ? 'on' : ''}
+                onClick={() => setThreadMode(mode.id)}
+                disabled={busy}
+              >
+                {mode.label}
+              </button>
             ))}
           </div>
-        )}
-        {(collab.status === 'solo' || collab.status === 'connecting' || collab.status === 'error') && (
-          <div className="join-form">
-            <label>
-              IP:ポートで接続
-              <input
-                value={endpoint}
-                onChange={(e) => setEndpoint(e.target.value)}
-                placeholder="192.168.1.10:51234"
-                spellCheck={false}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void onJoin()
-                }}
-              />
-            </label>
-            <div className="join-actions">
-              <button type="button" className="primary" disabled={joining} onClick={() => void onJoin()}>
-                接続
+          {!configured && (
+            <p className="muted small">
+              API が未設定です。
+              <button type="button" className="linkish" onClick={() => void window.coterea.app.showSettings()}>
+                設定を開く
               </button>
-              <button type="button" disabled={joining} onClick={() => void startManualHost()}>
-                ハブとして待つ
+            </p>
+          )}
+          <textarea
+            value={thread.draft ?? ''}
+            placeholder={
+              thread.mode === 'ask'
+                ? '質問する（Enter で送信）'
+                : thread.mode === 'edit'
+                  ? '文書への変更を依頼'
+                  : '複数ファイルをまたいで依頼'
+            }
+            rows={3}
+            disabled={busy}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                void sendChat()
+              }
+            }}
+          />
+          <div className="chat-send-row">
+            {busy ? (
+              <button type="button" onClick={() => void stopChat()}>
+                停止
               </button>
-            </div>
-          </div>
-        )}
-        {(collab.status === 'hosting' || collab.status === 'joined') && (
-          <div className="join-actions">
-            <button type="button" onClick={() => void leaveManualSession()}>
-              {collab.status === 'hosting' ? 'ハブを停止' : '切断'}
-            </button>
-          </div>
-        )}
-      </section>
-
-      <section className="pane-card">
-        <div className="label">共有中のファイル</div>
-        {collab.sharedKeys.length === 0 ? (
-          <p className="muted">
-            {collab.identityHint ??
-              '同じ実体のファイルを開くと、そのファイルだけ同期します。パス表記が違っても同一ファイルなら共有します。'}
-          </p>
-        ) : (
-          <ul className="peer-list">
-            {(collab.fileSavers.length > 0 ? collab.fileSavers : collab.sharedKeys.map((title) => ({ title, local: true, name: 'このPC' }))).map(
-              (item) => (
-                <li key={item.title}>
-                  {item.title}
-                  <div className="muted small">ディスク保存: {item.local ? 'このPC' : item.name}</div>
-                </li>
-              )
+            ) : (
+              <button type="button" className="primary" onClick={() => void sendChat()} disabled={!configured}>
+                送信
+              </button>
             )}
-          </ul>
-        )}
-        {collab.identityHint && collab.sharedKeys.length === 0 && collab.remoteFileTitles.length > 0 && (
-          <p className="muted small">相手が開いている名前: {collab.remoteFileTitles.join('、')}</p>
-        )}
-      </section>
-
-      <section className="pane-card grow">
-        <div className="label">参加者</div>
-        <ul className="peer-list">
-          {participants.length === 0 && <li className="muted">まだ誰もいません</li>}
-          {participants.map((peer) => (
-            <li key={peer.id}>
-              <span className="swatch" style={{ background: peer.color }} />
-              <div>
-                <div>
-                  {peer.displayName}
-                  {peer.id === collab.localPeerId ? '（自分）' : ''}
-                </div>
-                <div className="muted small">{peer.docTitle ?? '—'}</div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <div className="pane-actions">
-        <p className="hint warn">{COLLAB_LAN_NOTICE_SHORT}</p>
-        <p className="hint">
-          同一LANのCotereaは自動でつながります。UDP が届かないときは、ハブ側の IP:ポートをコピーして手動接続してください。同期は同じ実体のファイルだけです。
-        </p>
-        <button type="button" className="linkish" onClick={() => void window.coterea.app.showCollabNotice()}>
-          共同編集について
-        </button>
-      </div>
+          </div>
+        </div>
+      )}
     </aside>
   )
+}
+
+function ChatLog({ messages }: { messages: ChatMessage[] }): React.JSX.Element {
+  const scroller = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+  }, [messages])
+  return (
+    <div className="chat-log" ref={scroller}>
+      {messages.length === 0 && <p className="muted">このスレッドの履歴はまだありません。</p>}
+      {messages.map((msg) => (
+        <ChatBubble key={msg.id} msg={msg} />
+      ))}
+    </div>
+  )
+}
+
+function ChatBubble({ msg }: { msg: ChatMessage }): React.JSX.Element {
+  if (msg.proposal) return <ProposalCard msg={msg} proposal={msg.proposal} />
+  if (msg.role === 'tool') {
+    return (
+      <div className="chat-msg tool">
+        <div className="chat-role">ツール</div>
+        <div>{msg.content}</div>
+      </div>
+    )
+  }
+  return (
+    <div className={`chat-msg ${msg.role}`}>
+      <div className="chat-role">{msg.role === 'user' ? 'あなた' : 'AI'}</div>
+      <div className="chat-text">{msg.content || '…'}</div>
+    </div>
+  )
+}
+
+function ProposalCard({ msg, proposal }: { msg: ChatMessage; proposal: ProposedEdit }): React.JSX.Element {
+  const { before, after } = previewTexts(proposal)
+  const lines = diffLines(before, after)
+  const status = msg.proposalStatus ?? 'pending'
+  return (
+    <div className="diff-card">
+      <div className="diff-head">
+        <strong>{proposal.tabTitle || proposal.tabId}</strong>
+        <span className="muted small">
+          {proposal.mode === 'replace_all' ? 'ファイル全体' : '範囲'}
+          {status === 'applied' ? ' · 適用済み' : status === 'rejected' ? ' · 拒否' : status === 'conflict' ? ' · 衝突' : ''}
+        </span>
+      </div>
+      {proposal.note && <p className="muted small">{proposal.note}</p>}
+      <pre className="diff-body">
+        {lines.map((line, i) => (
+          <div key={i} className={`diff-${line.type}`}>
+            {line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}
+            {line.text}
+          </div>
+        ))}
+      </pre>
+      {status === 'pending' && (
+        <div className="diff-actions">
+          <button type="button" className="primary" onClick={() => void applyProposal(msg.id)}>
+            適用
+          </button>
+          <button type="button" onClick={() => void rejectProposal(msg.id)}>
+            拒否
+          </button>
+        </div>
+      )}
+      {status === 'conflict' && (
+        <div className="diff-actions">
+          <p className="warn small">プレビュー後に文書が変わっています。上書きするかやり直してください。</p>
+          <button type="button" className="primary" onClick={() => void applyProposal(msg.id, true)}>
+            上書き適用
+          </button>
+          <button type="button" onClick={() => void rejectProposal(msg.id)}>
+            拒否
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function headerLabel(collab: { status: string }, people: number): string {
+  if (collab.status === 'hosting') return `${people}人 · ハブ`
+  if (collab.status === 'joined') return `${people}人 · 参加中`
+  if (collab.status === 'connecting') return '接続中'
+  return '1人'
 }

@@ -8,6 +8,27 @@ import type {
   WriteFileResult
 } from './types'
 import type { EncodingId } from './encoding'
+import type { ChatHistoryFile, ChatMode, ProposedEdit } from './ai'
+
+export type AiStreamEvent =
+  | { type: 'delta'; text: string }
+  | { type: 'tool'; name: string; detail: string }
+  | { type: 'proposal'; messageId: string; note?: string; proposal: ProposedEdit }
+  | { type: 'done' }
+  | { type: 'error'; message: string }
+
+export type AiToolRequest =
+  | { callId: string; name: 'list_open_tabs' }
+  | { callId: string; name: 'read_tab'; tabId: string }
+  | { callId: string; name: 'snapshot_tab'; tabId: string }
+
+export interface AiChatRequest {
+  requestId: string
+  mode: ChatMode
+  messages: { role: 'user' | 'assistant' | 'tool'; content: string; toolCallId?: string }[]
+  activeTabId: string | null
+  selection?: { from: number; to: number; text: string } | null
+}
 
 export interface CotereaApi {
   settings: {
@@ -73,5 +94,19 @@ export interface CotereaApi {
     consumeLaunchFiles: () => Promise<string[]>
     onOpenFiles: (cb: (paths: string[]) => void) => () => void
     popupMenu: (label: string, x: number, y: number) => void
+  }
+  ai: {
+    status: () => Promise<{ hasKey: boolean; configured: boolean }>
+    setKey: (key: string) => Promise<{ hasKey: boolean; configured: boolean }>
+    start: (req: AiChatRequest) => Promise<{ ok: true } | { ok: false; error: string }>
+    stop: (requestId: string) => Promise<void>
+    toolResult: (payload: { requestId: string; callId: string; result: string }) => void
+    onEvent: (cb: (payload: { requestId: string; event: AiStreamEvent }) => void) => () => void
+    onTool: (cb: (payload: { requestId: string } & AiToolRequest) => void) => () => void
+    onStatus: (cb: (payload: { hasKey: boolean; configured: boolean }) => void) => () => void
+  }
+  chat: {
+    get: () => Promise<ChatHistoryFile>
+    set: (history: ChatHistoryFile) => Promise<void>
   }
 }

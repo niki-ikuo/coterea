@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { CollabStatus, PeerInfo } from '../../shared/types'
 import type { EncodingId } from '../../shared/encoding'
 import { DEFAULT_THEME, type ThemeId } from '../../shared/theme'
+import { defaultChatHistory, type ChatHistoryFile } from '../../shared/ai'
 
 export type MdView = 'edit' | 'split' | 'preview'
 
@@ -50,6 +51,11 @@ type AppState = {
   column: number
   joinOpen: boolean
   collab: CollabState
+  chat: ChatHistoryFile
+  chatBusy: boolean
+  chatRequestId: string | null
+  aiConfigured: boolean
+  aiHasKey: boolean
   setDisplayName: (name: string) => void
   setTheme: (theme: ThemeId) => void
   setTabs: (tabs: TabInfo[] | ((prev: TabInfo[]) => TabInfo[])) => void
@@ -58,6 +64,9 @@ type AppState = {
   setCollabPaneVisible: (v: boolean) => void
   setJoinOpen: (v: boolean) => void
   patchCollab: (patch: Partial<CollabState>) => void
+  setChat: (chat: ChatHistoryFile | ((prev: ChatHistoryFile) => ChatHistoryFile)) => void
+  setChatBusy: (busy: boolean, requestId?: string | null) => void
+  setAiStatus: (status: { configured: boolean; hasKey: boolean }) => void
 }
 
 const idleCollab: CollabState = {
@@ -90,6 +99,11 @@ export const useAppStore = create<AppState>((set) => ({
   column: 1,
   joinOpen: false,
   collab: idleCollab,
+  chat: defaultChatHistory(),
+  chatBusy: false,
+  chatRequestId: null,
+  aiConfigured: false,
+  aiHasKey: false,
   setDisplayName: (displayName) => set({ displayName }),
   setTheme: (theme) => set({ theme }),
   setTabs: (tabs) =>
@@ -98,7 +112,14 @@ export const useAppStore = create<AppState>((set) => ({
   setCursor: (line, column) => set({ line, column }),
   setCollabPaneVisible: (collabPaneVisible) => set({ collabPaneVisible }),
   setJoinOpen: (joinOpen) => set({ joinOpen }),
-  patchCollab: (patch) => set((s) => ({ collab: { ...s.collab, ...patch } }))
+  patchCollab: (patch) => set((s) => ({ collab: { ...s.collab, ...patch } })),
+  setChat: (chat) => set((s) => ({ chat: typeof chat === 'function' ? chat(s.chat) : chat })),
+  setChatBusy: (chatBusy, requestId) =>
+    set({
+      chatBusy,
+      ...(requestId !== undefined ? { chatRequestId: requestId } : !chatBusy ? { chatRequestId: null } : {})
+    }),
+  setAiStatus: (status) => set({ aiConfigured: status.configured, aiHasKey: status.hasKey })
 }))
 
 export function resetCollab(): void {

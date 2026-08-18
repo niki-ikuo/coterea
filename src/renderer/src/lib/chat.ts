@@ -1,0 +1,366 @@
+import {
+  cannotDeleteLastThread,
+  classifyApplyCollision,
+  emptyThread,
+  titleFromPrompt,
+  type ChatMessage,
+  type ChatMode,
+  type ChatThread
+} from '../../../shared/ai'
+import { markDirty } from './collab'
+import { preloadEditor } from './editorReady'
+import { getActiveEditor } from './editorHandle'
+import { useAppStore } from '../store'
+import type { AiStreamEvent, AiToolRequest } from '../../../shared/api'
+
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+let listenersAttached = false
+let streamBuf = { requestId: '', assistantId: '', text: '' }
+
+function persistSoon(): void {
+  if (persistTimer) clearTimeout(persistTimer)
+  persistTimer = setTimeout(() => {
+    persistTimer = null
+    void window.coterea.chat.set(useAppStore.getState().chat)
+  }, 250)
+}
+
+function patchActiveThread(fn: (thread: ChatThread) => ChatThread): void {
+  useAppStore.getState().setChat((chat) => ({
+    ...chat,
+    threads: chat.threads.map((t) => (t.id === chat.activeId ? fn(t) : t))
+  }))
+  persistSoon()
+}
+
+export function activeThread(): ChatThread | undefined {
+  const chat = useAppStore.getState().chat
+  return chat.threads.find((t) => t.id === chat.activeId)
+}
+
+export async function loadChat(): Promise<void> {
+  const history = await window.coterea.chat.get()
+  useAppStore.getState().setChat(history)
+  const status = await window.coterea.ai.status()
+  useAppStore.getState().setAiStatus(status)
+}
+
+export function newThread(): void {
+  const thread = emptyThread(crypto.randomUUID())
+  useAppStore.getState().setChat((chat) => ({
+    activeId: thread.id,
+    threads: [...chat.threads, thread]
+  }))
+  persistSoon()
+}
+
+export function selectThread(id: string): void {
+  useAppStore.getState().setChat((chat) => ({ ...chat, activeId: id }))
+  persistSoon()
+}
+
+export function renameThread(id: string, title: string): void {
+  const next = title.trim()
+  if (!next) return
+  useAppStore.getState().setChat((chat) => ({
+    ...chat,
+    threads: chat.threads.map((t) => (t.id === id ? { ...t, title: next, updatedAt: Date.now() } : t))
+  }))
+  persistSoon()
+}
+
+export function closeThread(id: string): void {
+  const chat = useAppStore.getState().chat
+  if (cannotDeleteLastThread(chat.threads.length)) {
+    patchActiveThread((t) => ({ ...t, title: '新しい会話', messages: [], draft: '', updatedAt: Date.now() }))
+    return
+  }
+  if (!window.confirm('この会話スレッドを削除しますか？履歴は戻りません。')) return
+  const threads = chat.threads.filter((t) => t.id !== id)
+  const activeId = chat.activeId === id ? threads[threads.length - 1].id : chat.activeId
+  useAppStore.getState().setChat({ activeId, threads })
+  persistSoon()
+}
+
+export function setThreadMode(mode: ChatMode): void {
+  patchActiveThread((t) => ({ ...t, mode, updatedAt: Date.now() }))
+}
+
+export function setDraft(draft: string): void {
+  patchActiveThread((t) => ({ ...t, draft }))
+}
+
+function selectionOfActive(): { from: number; to: number; text: string } | null {
+  const editor = getActiveEditor()
+  const model = editor?.getModel()
+  const sel = editor?.getSelection()
+  if (!editor || !model || !sel || sel.isEmpty()) return null
+  const from = model.getOffsetAt(sel.getStartPosition())
+  const to = model.getOffsetAt(sel.getEndPosition())
+  if (to <= from) return null
+  return { from, to, text: model.getValueInRange(sel) }
+}
+
+function historyForLlm(thread: ChatThread): { role: 'user' | 'assistant'; content: string }[] {
+  return thread.messages
+    .filter((m) => (m.role === 'user' || m.role === 'assistant') && !m.proposal && m.content)
+    .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+}
+
+async function buildContext(): Promise<{ content: string; selection: { from: number; to: number; text: string } | null }> {
+  const { tabs, activeTabId } = useAppStore.getState()
+  const tab = tabs.find((t) => t.id === activeTabId)
+  const { getText } = await preloadEditor()
+  const selection = selectionOfActive()
+  if (!tab) return { content: '[開いているファイルはありません]', selection: null }
+  const body = getText(tab.id)
+  let content = `[現在のファイル: ${tab.title}]\nid: ${tab.id}\nlanguage: ${tab.language}\n\n${body}`
+  if (selection) content += `\n\n[選択範囲]\n${selection.text}`
+  return { content, selection }
+}
+
+export async function sendChat(): Promise<void> {
+  const thread = activeThread()
+  if (!thread) return
+  const text = (thread.draft ?? '').trim()
+  if (!text) return
+  if (useAppStore.getState().chatBusy) return
+  const configured = useAppStore.getState().aiConfigured
+  if (!configured) {
+    void window.coterea.app.showSettings()
+    return
+  }
+
+  const userMsg: ChatMessage = {
+    id: crypto.randomUUID(),
+    role: 'user',
+    content: text,
+    createdAt: Date.now()
+  }
+  const assistantId = crypto.randomUUID()
+  const assistantMsg: ChatMessage = {
+    id: assistantId,
+    role: 'assistant',
+    content: '',
+    createdAt: Date.now()
+  }
+  const titled = thread.messages.length === 0 ? titleFromPrompt(text) : thread.title
+  patchActiveThread((t) => ({
+    ...t,
+    title: titled,
+    draft: '',
+    messages: [...t.messages, userMsg, assistantMsg],
+    updatedAt: Date.now()
+  }))
+
+  const requestId = crypto.randomUUID()
+  streamBuf = { requestId, assistantId, text: '' }
+  useAppStore.getState().setChatBusy(true, requestId)
+
+  const { content: context, selection } = await buildContext()
+  const live = activeThread()
+  if (!live) {
+    useAppStore.getState().setChatBusy(false, null)
+    return
+  }
+  const result = await window.coterea.ai.start({
+    requestId,
+    mode: live.mode,
+    activeTabId: useAppStore.getState().activeTabId,
+    selection,
+    messages: [
+      { role: 'user', content: context },
+      ...historyForLlm({ ...live, messages: live.messages.filter((m) => m.id !== assistantId) })
+    ]
+  })
+  if (!result.ok) {
+    patchActiveThread((t) => ({
+      ...t,
+      messages: t.messages.map((m) =>
+        m.id === assistantId ? { ...m, content: result.error } : m
+      )
+    }))
+    useAppStore.getState().setChatBusy(false, null)
+  }
+}
+
+export async function stopChat(): Promise<void> {
+  const id = useAppStore.getState().chatRequestId
+  if (id) await window.coterea.ai.stop(id)
+}
+
+function appendAssistantDelta(requestId: string, text: string): void {
+  if (streamBuf.requestId !== requestId) return
+  streamBuf.text += text
+  const assistantId = streamBuf.assistantId
+  patchActiveThread((t) => ({
+    ...t,
+    messages: t.messages.map((m) => (m.id === assistantId ? { ...m, content: streamBuf.text } : m))
+  }))
+}
+
+function appendMessage(msg: ChatMessage): void {
+  patchActiveThread((t) => ({ ...t, messages: [...t.messages, msg], updatedAt: Date.now() }))
+}
+
+function handleEvent(requestId: string, event: AiStreamEvent): void {
+  if (useAppStore.getState().chatRequestId && useAppStore.getState().chatRequestId !== requestId) return
+  if (event.type === 'delta') {
+    if (streamBuf.requestId !== requestId || !streamBuf.assistantId) {
+      const assistantId = crypto.randomUUID()
+      streamBuf = { requestId, assistantId, text: '' }
+      appendMessage({
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        createdAt: Date.now()
+      })
+    }
+    appendAssistantDelta(requestId, event.text)
+    return
+  }
+  if (event.type === 'tool') {
+    streamBuf.assistantId = ''
+    streamBuf.text = ''
+    appendMessage({
+      id: crypto.randomUUID(),
+      role: 'tool',
+      content: event.detail,
+      createdAt: Date.now(),
+      toolName: event.name
+    })
+    return
+  }
+  if (event.type === 'proposal') {
+    streamBuf.assistantId = ''
+    streamBuf.text = ''
+    appendMessage({
+      id: event.messageId,
+      role: 'assistant',
+      content: event.note ?? '変更案',
+      createdAt: Date.now(),
+      proposal: event.proposal,
+      proposalStatus: 'pending'
+    })
+    return
+  }
+  if (event.type === 'error') {
+    appendAssistantDelta(requestId, streamBuf.text ? `\n\n${event.message}` : event.message)
+    useAppStore.getState().setChatBusy(false, null)
+    persistSoon()
+    return
+  }
+  if (event.type === 'done') {
+    patchActiveThread((t) => ({
+      ...t,
+      messages: t.messages.filter((m) => m.proposal || m.content || m.role === 'user' || m.role === 'tool')
+    }))
+    useAppStore.getState().setChatBusy(false, null)
+    persistSoon()
+  }
+}
+
+function handleTool(payload: { requestId: string } & AiToolRequest): void {
+  const { tabs } = useAppStore.getState()
+  void (async () => {
+    const { getText } = await preloadEditor()
+    if (payload.name === 'list_open_tabs') {
+      window.coterea.ai.toolResult({
+        requestId: payload.requestId,
+        callId: payload.callId,
+        result: JSON.stringify(
+          tabs.map((t) => ({ id: t.id, name: t.title, language: t.language }))
+        )
+      })
+      return
+    }
+    if (payload.name === 'read_tab' || payload.name === 'snapshot_tab') {
+      const tab = tabs.find((t) => t.id === payload.tabId)
+      if (!tab) {
+        window.coterea.ai.toolResult({
+          requestId: payload.requestId,
+          callId: payload.callId,
+          result: JSON.stringify({ error: 'そのタブは開いていません' })
+        })
+        return
+      }
+      window.coterea.ai.toolResult({
+        requestId: payload.requestId,
+        callId: payload.callId,
+        result: JSON.stringify({ id: tab.id, title: tab.title, language: tab.language, content: getText(tab.id) })
+      })
+    }
+  })()
+}
+
+export function attachAiListeners(): () => void {
+  if (listenersAttached) return () => undefined
+  listenersAttached = true
+  const offEvent = window.coterea.ai.onEvent(({ requestId, event }) => handleEvent(requestId, event))
+  const offTool = window.coterea.ai.onTool((payload) => handleTool(payload))
+  const offStatus = window.coterea.ai.onStatus((status) => useAppStore.getState().setAiStatus(status))
+  return () => {
+    listenersAttached = false
+    offEvent()
+    offTool()
+    offStatus()
+  }
+}
+
+export async function applyProposal(messageId: string, force = false): Promise<void> {
+  const thread = activeThread()
+  const msg = thread?.messages.find((m) => m.id === messageId)
+  const proposal = msg?.proposal
+  if (!proposal || !thread) return
+  const { getText, applyLocalEdit } = await preloadEditor()
+  const current = getText(proposal.tabId)
+  const collision = classifyApplyCollision({ current: current || null, proposal })
+  if (collision === 'missing') {
+    patchActiveThread((t) => ({
+      ...t,
+      messages: t.messages.map((m) =>
+        m.id === messageId ? { ...m, proposalStatus: 'conflict', content: `${m.content}\n（タブが開いていません）` } : m
+      )
+    }))
+    return
+  }
+  if (collision !== 'ok' && !force) {
+    patchActiveThread((t) => ({
+      ...t,
+      messages: t.messages.map((m) => (m.id === messageId ? { ...m, proposalStatus: 'conflict' } : m))
+    }))
+    persistSoon()
+    return
+  }
+  if (proposal.mode === 'replace_all') {
+    applyLocalEdit(proposal.tabId, 0, current.length, proposal.text)
+  } else {
+    const from = proposal.from ?? 0
+    const to = proposal.to ?? 0
+    applyLocalEdit(proposal.tabId, from, to, proposal.text)
+  }
+  markDirty(proposal.tabId)
+  patchActiveThread((t) => ({
+    ...t,
+    messages: t.messages.map((m) => (m.id === messageId ? { ...m, proposalStatus: 'applied' } : m))
+  }))
+  persistSoon()
+}
+
+export async function rejectProposal(messageId: string): Promise<void> {
+  patchActiveThread((t) => ({
+    ...t,
+    messages: t.messages.map((m) => (m.id === messageId ? { ...m, proposalStatus: 'rejected' } : m))
+  }))
+  persistSoon()
+}
+
+export async function applyAllPending(force = false): Promise<void> {
+  const thread = activeThread()
+  if (!thread) return
+  for (const msg of thread.messages) {
+    if (msg.proposal && (msg.proposalStatus === 'pending' || (force && msg.proposalStatus === 'conflict'))) {
+      await applyProposal(msg.id, force)
+    }
+  }
+}

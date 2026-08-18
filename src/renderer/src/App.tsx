@@ -5,6 +5,7 @@ import { TabBar } from './components/TabBar'
 import { TitleBar } from './components/TitleBar'
 import { attachCollabListeners, enableCollab } from './lib/collab'
 import { closeTab, createUntitled, cycleMdView, cycleTab, handleAppClose, openDialog, openPaths, openPathsFromShell, saveActive, setMdView, toggleCollabPane, attachFileWatch } from './lib/actions'
+import { attachAiListeners, loadChat } from './lib/chat'
 import { preloadEditor, applyLoadedMonacoTheme } from './lib/editorReady'
 import { applyUiTheme } from './lib/uiTheme'
 import { getActiveEditor } from './lib/editorHandle'
@@ -35,6 +36,7 @@ function bootApp(): Promise<void> {
         await applyLoadedMonacoTheme(theme)
         if (launchFiles.length > 0) await openPathsFromShell(launchFiles)
         if (useAppStore.getState().tabs.length === 0) await createUntitled()
+        await loadChat()
         void import('./lib/monacoEnv').then((m) => m.preloadMonacoLanguages())
         void enableCollab()
       } catch (err) {
@@ -59,6 +61,7 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     void bootApp().then(() => setBooted(true))
     const offCollab = attachCollabListeners()
+    const offAi = attachAiListeners()
     const offWatch = attachFileWatch()
     const offOpenFiles = window.coterea.app.onOpenFiles((paths) => {
       void openPathsFromShell(paths)
@@ -127,6 +130,7 @@ export function App(): React.JSX.Element {
     })
     return () => {
       offCollab()
+      offAi()
       offWatch()
       offMenu()
       offClose()

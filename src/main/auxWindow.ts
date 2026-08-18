@@ -12,11 +12,13 @@ export function createAuxWindow(options: {
   theme: ThemeId
   view: string
   title: string
+  width?: number
+  height?: number
 }): BrowserWindow {
   const overlay = THEME_TITLEBAR_OVERLAY[options.theme]
   const parentBounds = options.parent.getBounds()
-  const width = AUX_WINDOW_WIDTH
-  const height = AUX_WINDOW_HEIGHT
+  const width = options.width ?? AUX_WINDOW_WIDTH
+  const height = options.height ?? AUX_WINDOW_HEIGHT
   const win = new BrowserWindow({
     parent: options.parent,
     modal: false,

@@ -14,7 +14,9 @@ export function showSettingsWindow(parent: BrowserWindow, theme: ThemeId): void 
     parent,
     theme,
     view: 'settings',
-    title: '設定'
+    title: '設定',
+    width: 520,
+    height: 720
   })
   settingsWindow.on('closed', () => {
     settingsWindow = null

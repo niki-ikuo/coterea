@@ -254,6 +254,24 @@ export function getText(id: string): string {
   return docs.get(id)?.ytext.toString() ?? ''
 }
 
+export function applyLocalEdit(id: string, from: number, to: number, text: string): boolean {
+  const tab = docs.get(id)
+  if (!tab) return false
+  const current = tab.ytext.toString()
+  if (from < 0 || to > current.length || from > to) return false
+  const origin = 'ai-apply'
+  tab.undo.addTrackedOrigin(origin)
+  tab.ydoc.transact(() => {
+    if (to > from) tab.ytext.delete(from, to - from)
+    if (text) tab.ytext.insert(from, text)
+  }, origin)
+  const next = tab.ytext.toString()
+  if (!tab.binding && tab.model.getValue() !== next) {
+    tab.model.setValue(next)
+  }
+  return true
+}
+
 export function replaceText(id: string, content: string): void {
   const tab = docs.get(id)
   if (!tab) return

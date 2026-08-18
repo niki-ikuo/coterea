@@ -55,7 +55,7 @@ export function buildMenu(
       label: '表示',
       submenu: [
         {
-          label: '共同編集パネル',
+          label: '右パネル',
           type: 'checkbox',
           checked: collabPaneVisible,
           accelerator: 'CmdOrCtrl+\\',

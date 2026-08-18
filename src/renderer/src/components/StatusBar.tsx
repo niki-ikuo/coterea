@@ -10,6 +10,8 @@ export function StatusBar(): React.JSX.Element {
   const tabs = useAppStore((s) => s.tabs)
   const activeTabId = useAppStore((s) => s.activeTabId)
   const collab = useAppStore((s) => s.collab)
+  const aiConfigured = useAppStore((s) => s.aiConfigured)
+  const chatBusy = useAppStore((s) => s.chatBusy)
   const tab = tabs.find((t) => t.id === activeTabId)
   const connected = collab.status === 'hosting' || collab.status === 'joined'
   const n = connected ? Math.max(collab.peers.length, 1) : 0
@@ -41,7 +43,7 @@ export function StatusBar(): React.JSX.Element {
           保存失敗
         </span>
       ) : null}
-      <span>AI: 未設定</span>
+      <span>AI: {chatBusy ? '生成中' : aiConfigured ? '接続可' : '未設定'}</span>
     </footer>
   )
 }

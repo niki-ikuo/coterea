@@ -4,6 +4,17 @@ import { join } from 'path'
 import { userInfo } from 'os'
 import type { AppSettings } from '../shared/types'
 import { DEFAULT_THEME, parseTheme } from '../shared/theme'
+import {
+  AI_DEFAULT_MAX_STEPS,
+  AI_DEFAULT_MAX_TOKENS,
+  AI_DEFAULT_MODEL,
+  AI_DEFAULT_TEMPERATURE,
+  clampMaxSteps,
+  clampMaxTokens,
+  clampTemperature,
+  parseProviderId,
+  providerById
+} from '../shared/ai'
 
 const MAX_RECENT = 12
 
@@ -18,8 +29,14 @@ function defaultStore(): Store {
       displayName: userInfo().username || 'User',
       theme: DEFAULT_THEME,
       collabPaneVisible: false,
-      collabLanNoticeShown: false
-    },
+        collabLanNoticeShown: false,
+        providerId: 'openai',
+        apiBaseUrl: providerById('openai').baseUrl,
+        model: AI_DEFAULT_MODEL,
+        temperature: AI_DEFAULT_TEMPERATURE,
+        maxTokens: AI_DEFAULT_MAX_TOKENS,
+        maxAgentSteps: AI_DEFAULT_MAX_STEPS
+      },
     recentFiles: []
   }
 }
@@ -50,7 +67,13 @@ export class AppStore {
         ...raw,
         theme: parseTheme(raw.theme),
         collabPaneVisible: raw.collabPaneVisible === true,
-        collabLanNoticeShown: raw.collabLanNoticeShown === true
+        collabLanNoticeShown: raw.collabLanNoticeShown === true,
+        providerId: parseProviderId(raw.providerId),
+        apiBaseUrl: typeof raw.apiBaseUrl === 'string' ? raw.apiBaseUrl : providerById(parseProviderId(raw.providerId)).baseUrl,
+        model: typeof raw.model === 'string' && raw.model.trim() ? raw.model : AI_DEFAULT_MODEL,
+        temperature: clampTemperature(raw.temperature),
+        maxTokens: clampMaxTokens(raw.maxTokens),
+        maxAgentSteps: clampMaxSteps(raw.maxAgentSteps)
       }
     } catch {
       /* first run */
@@ -79,7 +102,13 @@ export class AppStore {
         : {}),
       ...(typeof patch.collabLanNoticeShown === 'boolean'
         ? { collabLanNoticeShown: patch.collabLanNoticeShown }
-        : {})
+        : {}),
+      ...(patch.providerId ? { providerId: parseProviderId(patch.providerId) } : {}),
+      ...(typeof patch.apiBaseUrl === 'string' ? { apiBaseUrl: patch.apiBaseUrl } : {}),
+      ...(typeof patch.model === 'string' && patch.model.trim() ? { model: patch.model.trim() } : {}),
+      ...(patch.temperature != null ? { temperature: clampTemperature(patch.temperature) } : {}),
+      ...(patch.maxTokens != null ? { maxTokens: clampMaxTokens(patch.maxTokens) } : {}),
+      ...(patch.maxAgentSteps != null ? { maxAgentSteps: clampMaxSteps(patch.maxAgentSteps) } : {})
     }
     await writeFile(this.settingsPath(), JSON.stringify(this.data.settings, null, 2), 'utf8')
     return this.getSettings()

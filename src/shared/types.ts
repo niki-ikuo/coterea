@@ -43,6 +43,12 @@ export interface AppSettings {
   theme: import('./theme').ThemeId
   collabPaneVisible: boolean
   collabLanNoticeShown: boolean
+  providerId?: import('./ai').AiProviderId
+  apiBaseUrl?: string
+  model?: string
+  temperature?: number
+  maxTokens?: number
+  maxAgentSteps?: number
 }
 
 export interface AboutInfo {

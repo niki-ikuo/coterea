@@ -112,6 +112,43 @@ const api = {
     popupMenu: (label: string, x: number, y: number): void => {
       ipcRenderer.send('menu:popup', label, x, y)
     }
+  },
+  ai: {
+    status: () => ipcRenderer.invoke('ai:status'),
+    setKey: (key: string) => ipcRenderer.invoke('ai:setKey', key),
+    start: (req: import('../shared/api').AiChatRequest) => ipcRenderer.invoke('ai:start', req),
+    stop: (requestId: string) => ipcRenderer.invoke('ai:stop', requestId),
+    toolResult: (payload: { requestId: string; callId: string; result: string }): void => {
+      ipcRenderer.send('ai:tool-result', payload)
+    },
+    onEvent: (cb: (payload: { requestId: string; event: import('../shared/api').AiStreamEvent }) => void) => {
+      const listener = (
+        _e: Electron.IpcRendererEvent,
+        payload: { requestId: string; event: import('../shared/api').AiStreamEvent }
+      ): void => cb(payload)
+      ipcRenderer.on('ai:event', listener)
+      return () => ipcRenderer.removeListener('ai:event', listener)
+    },
+    onTool: (cb: (payload: { requestId: string } & import('../shared/api').AiToolRequest) => void) => {
+      const listener = (
+        _e: Electron.IpcRendererEvent,
+        payload: { requestId: string } & import('../shared/api').AiToolRequest
+      ): void => cb(payload)
+      ipcRenderer.on('ai:tool', listener)
+      return () => ipcRenderer.removeListener('ai:tool', listener)
+    },
+    onStatus: (cb: (payload: { hasKey: boolean; configured: boolean }) => void) => {
+      const listener = (
+        _e: Electron.IpcRendererEvent,
+        payload: { hasKey: boolean; configured: boolean }
+      ): void => cb(payload)
+      ipcRenderer.on('ai:status', listener)
+      return () => ipcRenderer.removeListener('ai:status', listener)
+    }
+  },
+  chat: {
+    get: () => ipcRenderer.invoke('chat:get'),
+    set: (history: import('../shared/ai').ChatHistoryFile) => ipcRenderer.invoke('chat:set', history)
   }
 }
 
