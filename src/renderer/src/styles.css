@@ -134,6 +134,21 @@ input {
   font: inherit;
 }
 
+button {
+  transition:
+    background-color 80ms ease,
+    color 80ms ease,
+    border-color 80ms ease,
+    filter 80ms ease,
+    transform 40ms ease,
+    opacity 80ms ease;
+}
+
+button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .app {
   height: 100%;
   min-height: 100%;
@@ -199,6 +214,10 @@ input {
 .app-menu-item:focus-visible {
   background: color-mix(in srgb, var(--text) 8%, transparent);
   outline: none;
+}
+
+.app-menu-item:active {
+  background: color-mix(in srgb, var(--text) 14%, transparent);
 }
 
 .app-menu-item:focus-visible {
@@ -267,7 +286,11 @@ input {
 
 .tab:hover {
   color: var(--text);
-  background: color-mix(in srgb, var(--text) 6%, transparent);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.tab:active:not(.active) {
+  background: color-mix(in srgb, var(--text) 14%, transparent);
 }
 
 .tab:focus-visible {
@@ -333,7 +356,11 @@ input {
 
 .tab-close:hover {
   color: var(--text);
-  background: color-mix(in srgb, var(--text) 12%, transparent);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.tab-close:active {
+  background: color-mix(in srgb, var(--text) 14%, transparent);
 }
 
 .tab-close-x {
@@ -382,7 +409,11 @@ input {
 
 .tab-add:hover {
   color: var(--text);
-  background: color-mix(in srgb, var(--text) 6%, transparent);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.tab-add:active {
+  background: color-mix(in srgb, var(--text) 14%, transparent);
 }
 
 .tabbar-rest {
@@ -426,14 +457,23 @@ html[data-theme='hc-dark'] .tab-close {
   border-right: 0;
 }
 
-.md-seg button:hover {
+.md-seg button:hover:not(.on) {
   color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, var(--bg-2));
+}
+
+.md-seg button:active:not(.on) {
+  background: color-mix(in srgb, var(--text) 14%, var(--bg-2));
 }
 
 .md-seg button.on {
   background: var(--accent);
   color: var(--primary-fg);
   font-weight: 650;
+}
+
+.md-seg button.on:hover {
+  background: var(--accent-2);
 }
 
 .md-sync {
@@ -655,7 +695,12 @@ html[data-theme='hc-dark'] .tab-close {
 }
 
 .empty-action:hover {
-  background: var(--bg-3);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+}
+
+.empty-action:active {
+  background: color-mix(in srgb, var(--text) 14%, transparent);
 }
 
 .empty-keys {
@@ -697,8 +742,9 @@ html[data-theme='hc-dark'] .tab-close {
   flex-direction: column;
   background: var(--bg-2);
   border-left: 1px solid var(--line);
-  padding: 16px;
-  gap: 12px;
+  padding: 8px 10px;
+  gap: 6px;
+  line-height: 1.3;
 }
 
 .pane-header {
@@ -710,8 +756,9 @@ html[data-theme='hc-dark'] .tab-close {
 
 .pane-header h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 600;
+  line-height: 1.2;
 }
 
 .pane-hide {
@@ -719,28 +766,30 @@ html[data-theme='hc-dark'] .tab-close {
   background: transparent;
   color: var(--muted);
   border-radius: 6px;
-  padding: 4px 8px;
+  padding: 2px 8px;
   cursor: pointer;
   font-size: 12px;
+  line-height: 1.2;
 }
 
 .pane-hide:hover {
   color: var(--text);
-  background: var(--bg-3);
+  background: color-mix(in srgb, var(--text) 8%, var(--bg-3));
 }
 
 .pane-kicker {
-  font-size: 11px;
+  font-size: 10px;
   letter-spacing: 0.16em;
   color: var(--accent);
   text-transform: uppercase;
+  line-height: 1.2;
 }
 
 .pane-card {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 12px;
+  border-radius: 8px;
+  padding: 8px 10px;
 }
 
 .pane-card.grow {
@@ -752,7 +801,8 @@ html[data-theme='hc-dark'] .tab-close {
 .label {
   font-size: 11px;
   color: var(--muted);
-  margin-bottom: 6px;
+  margin-bottom: 3px;
+  line-height: 1.2;
 }
 
 .muted {
@@ -764,19 +814,53 @@ html[data-theme='hc-dark'] .tab-close {
 }
 
 .status-line {
-  margin: 0 0 8px;
+  margin: 0 0 4px;
+  line-height: 1.3;
 }
 
 .name-btn,
 .pane-actions button,
 .dialog-actions button,
-.invite button {
+.invite button,
+.join-actions button {
   border: 1px solid var(--line);
   background: var(--bg-3);
   color: var(--text);
   border-radius: 8px;
   padding: 8px 12px;
   cursor: pointer;
+}
+
+.name-btn,
+.pane-actions button:not(.linkish),
+.invite button,
+.join-actions button {
+  padding: 3px 10px;
+  border-radius: 6px;
+  line-height: 1.2;
+}
+
+.invite button {
+  min-width: 6.5em;
+}
+
+.name-btn:hover,
+.pane-actions button:not(.linkish):hover,
+.dialog-actions button:hover,
+.invite button:hover,
+.join-actions button:hover {
+  background: color-mix(in srgb, var(--text) 8%, var(--bg-3));
+  color: var(--text);
+}
+
+.name-btn:active,
+.pane-hide:active,
+.pane-actions button:not(.linkish):active,
+.dialog-actions button:active,
+.invite button:active,
+.join-actions button:active {
+  background: color-mix(in srgb, var(--text) 14%, var(--bg-3));
+  transform: translateY(1px);
 }
 
 .name-btn {
@@ -793,9 +877,38 @@ button.primary {
   font-weight: 600;
 }
 
+button.primary:hover:not(:disabled),
+.dialog-actions button.primary:hover:not(:disabled) {
+  background: var(--accent-2);
+  color: var(--primary-fg);
+  border-color: transparent;
+}
+
+button.primary:active:not(:disabled),
+.dialog-actions button.primary:active:not(:disabled) {
+  background: var(--accent-2);
+  filter: brightness(0.92);
+  transform: translateY(1px);
+}
+
+.invite button.is-copied,
+.invite button.is-copied:hover {
+  background: var(--accent);
+  color: var(--primary-fg);
+  border-color: transparent;
+}
+
+.invite button.is-copied:active {
+  background: var(--accent-2);
+  filter: brightness(0.92);
+  transform: translateY(1px);
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  transform: none;
+  filter: none;
 }
 
 .swatch {
@@ -806,46 +919,51 @@ button:disabled {
 }
 
 .invite {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
 }
 
 .invite code {
   font-size: 13px;
   letter-spacing: 0.02em;
   color: var(--accent);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .join-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 10px;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 .join-form input {
   border: 1px solid var(--line);
   background: var(--bg-3);
   color: var(--text);
-  border-radius: 8px;
-  padding: 8px 10px;
+  border-radius: 6px;
+  padding: 4px 8px;
   font: inherit;
+  line-height: 1.2;
 }
 
 .join-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .listen-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 4px;
+  margin-top: 6px;
 }
 
 .peer-list {
@@ -854,7 +972,7 @@ button:disabled {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 4px;
 }
 
 .peer-list li {
@@ -866,14 +984,14 @@ button:disabled {
 .pane-actions {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
 .hint {
   font-size: 11px;
   color: var(--muted);
-  line-height: 1.5;
-  margin: 4px 0 0;
+  line-height: 1.3;
+  margin: 2px 0 0;
 }
 
 .hint.warn {
@@ -889,6 +1007,14 @@ button:disabled {
   color: var(--text);
   text-decoration: underline;
   font-size: 12px;
+}
+
+.pane-actions .linkish:hover {
+  color: var(--accent);
+}
+
+.pane-actions .linkish:active {
+  color: var(--accent-2);
 }
 
 .statusbar {
@@ -914,6 +1040,10 @@ button:disabled {
 
 .status-btn:hover {
   color: var(--text);
+}
+
+.status-btn:active {
+  opacity: 0.75;
 }
 
 .encoding-picker {
@@ -948,7 +1078,11 @@ button:disabled {
 
 .encoding-menu button:hover,
 .encoding-menu button.active {
-  background: var(--bg-3);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.encoding-menu button:active {
+  background: color-mix(in srgb, var(--text) 14%, transparent);
 }
 
 .encoding-hint {
@@ -995,6 +1129,10 @@ label {
 
 .presence-btn:hover {
   background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.presence-btn:active {
+  background: color-mix(in srgb, var(--text) 14%, transparent);
 }
 
 .presence-stack {

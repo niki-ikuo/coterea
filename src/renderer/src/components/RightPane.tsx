@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../store'
 import { setCollabPaneVisible } from '../lib/actions'
 import { joinManual, leaveManualSession, startManualHost } from '../lib/collab'
@@ -14,6 +14,21 @@ export function RightPane(): React.JSX.Element {
   const count = Math.max(participants.length, 1)
   const [endpoint, setEndpoint] = useState('')
   const [joining, setJoining] = useState(false)
+  const [copied, setCopied] = useState<string | null>(null)
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimer.current) clearTimeout(copiedTimer.current)
+    }
+  }, [])
+
+  const onCopyEndpoint = async (item: string): Promise<void> => {
+    await window.coterea.app.writeClipboard(item)
+    setCopied(item)
+    if (copiedTimer.current) clearTimeout(copiedTimer.current)
+    copiedTimer.current = setTimeout(() => setCopied(null), 1500)
+  }
   const endpoints =
     collab.status === 'hosting' && collab.tcpPort > 0
       ? collab.listenAddresses.map((ip) => `${ip}:${collab.tcpPort}`)
@@ -69,9 +84,10 @@ export function RightPane(): React.JSX.Element {
                 <code>{item}</code>
                 <button
                   type="button"
-                  onClick={() => void window.coterea.app.writeClipboard(item)}
+                  className={copied === item ? 'is-copied' : undefined}
+                  onClick={() => void onCopyEndpoint(item)}
                 >
-                  コピー
+                  {copied === item ? 'コピー済み' : 'コピー'}
                 </button>
               </div>
             ))}
