@@ -14,20 +14,27 @@ export function createAuxWindow(options: {
   title: string
   width?: number
   height?: number
+  minWidth?: number
+  minHeight?: number
+  resizable?: boolean
+  query?: Record<string, string>
 }): BrowserWindow {
   const overlay = THEME_TITLEBAR_OVERLAY[options.theme]
   const parentBounds = options.parent.getBounds()
   const width = options.width ?? AUX_WINDOW_WIDTH
   const height = options.height ?? AUX_WINDOW_HEIGHT
+  const resizable = options.resizable === true
   const win = new BrowserWindow({
     parent: options.parent,
     modal: false,
     width,
     height,
+    minWidth: options.minWidth,
+    minHeight: options.minHeight,
     x: Math.round(parentBounds.x + (parentBounds.width - width) / 2),
     y: Math.round(parentBounds.y + (parentBounds.height - height) / 2),
-    resizable: false,
-    maximizable: false,
+    resizable,
+    maximizable: resizable,
     fullscreenable: false,
     minimizable: true,
     autoHideMenuBar: true,
@@ -60,6 +67,6 @@ export function createAuxWindow(options: {
     win.show()
   })
 
-  loadRenderer(win, options.view)
+  loadRenderer(win, options.view, options.query)
   return win
 }

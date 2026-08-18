@@ -32,6 +32,8 @@ function defaultStore(): Store {
       theme: DEFAULT_THEME,
       collabPaneVisible: false,
         collabLanNoticeShown: false,
+        minimapEnabled: false,
+        mdOutlineEnabled: true,
         providerId: 'openai',
         apiBaseUrl: providerById('openai').baseUrl,
         model: AI_DEFAULT_MODEL,
@@ -75,6 +77,8 @@ export class AppStore {
         theme: parseTheme(raw.theme),
         collabPaneVisible: raw.collabPaneVisible === true,
         collabLanNoticeShown: raw.collabLanNoticeShown === true,
+        minimapEnabled: raw.minimapEnabled === true,
+        mdOutlineEnabled: raw.mdOutlineEnabled !== false,
         providerId: parseProviderId(raw.providerId),
         apiBaseUrl: typeof raw.apiBaseUrl === 'string' ? raw.apiBaseUrl : providerById(parseProviderId(raw.providerId)).baseUrl,
         model: typeof raw.model === 'string' && raw.model.trim() ? raw.model : AI_DEFAULT_MODEL,
@@ -115,6 +119,8 @@ export class AppStore {
       ...(typeof patch.collabLanNoticeShown === 'boolean'
         ? { collabLanNoticeShown: patch.collabLanNoticeShown }
         : {}),
+      ...(typeof patch.minimapEnabled === 'boolean' ? { minimapEnabled: patch.minimapEnabled } : {}),
+      ...(typeof patch.mdOutlineEnabled === 'boolean' ? { mdOutlineEnabled: patch.mdOutlineEnabled } : {}),
       ...(patch.providerId ? { providerId: parseProviderId(patch.providerId) } : {}),
       ...(typeof patch.apiBaseUrl === 'string' ? { apiBaseUrl: patch.apiBaseUrl } : {}),
       ...(typeof patch.model === 'string' && patch.model.trim() ? { model: patch.model.trim() } : {}),

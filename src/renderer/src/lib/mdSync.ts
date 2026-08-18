@@ -1,11 +1,13 @@
 export type MdSection = {
   index: number
   line: number
+  level: number
+  title: string
 }
 
 export function parseMdSections(source: string): MdSection[] {
   const lines = source.split(/\r?\n/)
-  const sections: MdSection[] = [{ index: 0, line: 1 }]
+  const sections: MdSection[] = [{ index: 0, line: 1, level: 0, title: '' }]
   let headingIndex = 1
   let inFence = false
   let fenceChar = ''
@@ -28,20 +30,35 @@ export function parseMdSections(source: string): MdSection[] {
     }
     if (inFence) continue
 
-    if (/^\s{0,3}#{1,6}\s+\S/.test(line)) {
-      sections.push({ index: headingIndex, line: i + 1 })
+    const atx = line.match(/^\s{0,3}(#{1,6})\s+(\S.*)$/)
+    if (atx) {
+      sections.push({
+        index: headingIndex,
+        line: i + 1,
+        level: atx[1].length,
+        title: atx[2].replace(/\s+#+\s*$/, '').trim()
+      })
       headingIndex += 1
       continue
     }
 
     const next = lines[i + 1]
     if (next && line.trim() !== '' && /^\s{0,3}(?:=+|-{2,})\s*$/.test(next)) {
-      sections.push({ index: headingIndex, line: i + 1 })
+      sections.push({
+        index: headingIndex,
+        line: i + 1,
+        level: /^\s{0,3}=+/.test(next) ? 1 : 2,
+        title: line.trim()
+      })
       headingIndex += 1
       i += 1
     }
   }
   return sections
+}
+
+export function mdHeadings(sections: MdSection[]): MdSection[] {
+  return sections.filter((item) => item.level > 0)
 }
 
 export function sectionAtLine(sections: MdSection[], line: number): number {

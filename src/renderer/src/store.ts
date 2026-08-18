@@ -28,6 +28,14 @@ export function isSettingsTab(tab: Pick<TabInfo, 'kind'>): boolean {
   return tab.kind === 'settings'
 }
 
+export function isVirtualTab(tab: Pick<TabInfo, 'kind'>): boolean {
+  return tab.kind === 'settings'
+}
+
+export function isFileTab(tab: Pick<TabInfo, 'kind'>): boolean {
+  return tab.kind === 'file'
+}
+
 export type CollabState = {
   status: CollabStatus
   role: 'solo' | 'host' | 'guest'
@@ -54,6 +62,8 @@ type AppState = {
   displayName: string
   theme: ThemeId
   collabPaneVisible: boolean
+  minimapEnabled: boolean
+  mdOutlineEnabled: boolean
   line: number
   column: number
   joinOpen: boolean
@@ -69,6 +79,8 @@ type AppState = {
   setActiveTabId: (id: string | null) => void
   setCursor: (line: number, column: number) => void
   setCollabPaneVisible: (v: boolean) => void
+  setMinimapEnabled: (v: boolean) => void
+  setMdOutlineEnabled: (v: boolean) => void
   setJoinOpen: (v: boolean) => void
   patchCollab: (patch: Partial<CollabState>) => void
   setChat: (chat: ChatHistoryFile | ((prev: ChatHistoryFile) => ChatHistoryFile)) => void
@@ -102,6 +114,8 @@ export const useAppStore = create<AppState>((set) => ({
   displayName: '',
   theme: DEFAULT_THEME,
   collabPaneVisible: false,
+  minimapEnabled: false,
+  mdOutlineEnabled: true,
   line: 1,
   column: 1,
   joinOpen: false,
@@ -118,6 +132,8 @@ export const useAppStore = create<AppState>((set) => ({
   setActiveTabId: (activeTabId) => set({ activeTabId }),
   setCursor: (line, column) => set({ line, column }),
   setCollabPaneVisible: (collabPaneVisible) => set({ collabPaneVisible }),
+  setMinimapEnabled: (minimapEnabled) => set({ minimapEnabled }),
+  setMdOutlineEnabled: (mdOutlineEnabled) => set({ mdOutlineEnabled }),
   setJoinOpen: (joinOpen) => set({ joinOpen }),
   patchCollab: (patch) => set((s) => ({ collab: { ...s.collab, ...patch } })),
   setChat: (chat) => set((s) => ({ chat: typeof chat === 'function' ? chat(s.chat) : chat })),

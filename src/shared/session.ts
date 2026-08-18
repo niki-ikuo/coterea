@@ -72,6 +72,9 @@ export function parseEditorSession(raw: unknown): EditorSession {
       if (!tabs.some((t) => t.kind === 'settings')) tabs.push({ kind: 'settings' })
       continue
     }
+    if (rec.kind === 'help' || rec.kind === 'ai-help') {
+      continue
+    }
     if (rec.kind === 'untitled') {
       const tab = parseUntitledTab(rec)
       if (tab) tabs.push(tab)

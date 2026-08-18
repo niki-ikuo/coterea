@@ -90,6 +90,9 @@ export interface CotereaApi {
     confirmClose: () => Promise<void>
     openExternal: (url: string) => Promise<void>
     showSettings: () => Promise<void>
+    showHelp: (docId?: string) => Promise<void>
+    showAiHelp: () => Promise<void>
+    helpCommand: (command: string) => Promise<void>
     getAboutInfo: () => Promise<AboutInfo>
     showCollabNotice: () => Promise<void>
     writeClipboard: (text: string) => Promise<void>
@@ -112,5 +115,13 @@ export interface CotereaApi {
   chat: {
     get: () => Promise<ChatHistoryFile>
     set: (history: ChatHistoryFile) => Promise<void>
+  }
+  help: {
+    list: () => Promise<import('./help').HelpDocMeta[]>
+    get: (id: string) => Promise<import('./help').HelpDoc>
+    search: (query: string) => Promise<import('./help').HelpSearchHit[]>
+    ask: (request: import('./help').HelpAskRequest) => Promise<import('./help').HelpAskResult>
+    cancelAsk: () => Promise<boolean>
+    onOpenDoc: (cb: (id: string) => void) => () => void
   }
 }

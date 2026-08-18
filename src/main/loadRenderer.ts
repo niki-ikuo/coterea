@@ -2,7 +2,7 @@ import { join } from 'path'
 import type { BrowserWindow } from 'electron'
 import { is } from '@electron-toolkit/utils'
 
-export function loadRenderer(win: BrowserWindow, view?: string): void {
+export function loadRenderer(win: BrowserWindow, view?: string, query?: Record<string, string>): void {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     if (!view) {
       void win.loadURL(process.env['ELECTRON_RENDERER_URL'])
@@ -10,8 +10,12 @@ export function loadRenderer(win: BrowserWindow, view?: string): void {
     }
     const url = new URL(process.env['ELECTRON_RENDERER_URL'])
     url.searchParams.set('view', view)
+    for (const [key, value] of Object.entries(query ?? {})) {
+      url.searchParams.set(key, value)
+    }
     void win.loadURL(url.toString())
     return
   }
-  void win.loadFile(join(__dirname, '../renderer/index.html'), view ? { query: { view } } : undefined)
+  const q = view ? { view, ...query } : query
+  void win.loadFile(join(__dirname, '../renderer/index.html'), q ? { query: q } : undefined)
 }

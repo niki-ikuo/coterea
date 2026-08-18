@@ -11,6 +11,7 @@ import {
   providerById,
   type AiProviderId
 } from '../../../shared/ai'
+import { setMdOutlineEnabled, setMinimapEnabled } from '../lib/actions'
 import { applyLoadedMonacoTheme } from '../lib/editorReady'
 import { applyUiTheme } from '../lib/uiTheme'
 import {
@@ -33,6 +34,8 @@ export function SettingsPane(): React.JSX.Element {
   const [name, setName] = useState('')
   const [themeDraft, setThemeDraft] = useState<ThemeId>('win-light')
   const [savedTheme, setSavedTheme] = useState<ThemeId>('win-light')
+  const minimapEnabled = useAppStore((s) => s.minimapEnabled)
+  const mdOutlineEnabled = useAppStore((s) => s.mdOutlineEnabled)
   const [providerId, setProviderId] = useState<AiProviderId>('openai')
   const [apiBaseUrl, setApiBaseUrl] = useState('')
   const [model, setModel] = useState('')
@@ -196,6 +199,29 @@ export function SettingsPane(): React.JSX.Element {
               </select>
             </label>
             <p className="muted small">保存するまで、次回起動には反映しません。</p>
+            <label className="settings-check">
+              <input
+                type="checkbox"
+                checked={minimapEnabled}
+                disabled={!ready}
+                onChange={(e) => {
+                  void setMinimapEnabled(e.target.checked)
+                }}
+              />
+              ミニマップを表示
+            </label>
+            <label className="settings-check">
+              <input
+                type="checkbox"
+                checked={mdOutlineEnabled}
+                disabled={!ready}
+                onChange={(e) => {
+                  void setMdOutlineEnabled(e.target.checked)
+                }}
+              />
+              Markdown の見出しを表示
+            </label>
+            <p className="muted small">表示メニューからも切り替えできます。すぐ反映され、次回起動にも残ります。</p>
           </>
         )}
         {section === 'ai' && (

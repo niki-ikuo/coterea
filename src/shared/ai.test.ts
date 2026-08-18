@@ -39,6 +39,18 @@ describe('threads', () => {
     expect(hist.threads.length).toBe(1)
     expect(hist.threads[0].mode).toBe('ask')
   })
+
+  it('閉じたスレッドは履歴から再開できる', () => {
+    const hist = sanitizeChatHistory({
+      activeId: 'a',
+      threads: [
+        { id: 'a', title: '今', messages: [], open: true },
+        { id: 'b', title: '前', messages: [{ id: 'm', role: 'user', content: 'hi', createdAt: 1 }], open: false, updatedAt: 2 }
+      ]
+    })
+    expect(hist.threads.find((t) => t.id === 'b')?.open).toBe(false)
+    expect(hist.threads.find((t) => t.id === 'a')?.open).toBe(true)
+  })
 })
 
 describe('propose_edit', () => {

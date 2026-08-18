@@ -2,13 +2,16 @@ import { Menu, type BrowserWindow } from 'electron'
 import { THEMES, type ThemeId } from '../shared/theme'
 import { zoomIn, zoomOut, zoomReset } from './zoom'
 import { showAboutWindow } from './about'
+import { showAiHelpWindow, showHelpWindow } from './helpWindows'
 
 export function buildMenu(
   win: BrowserWindow,
   recent: string[],
   send: (action: string, extra?: string) => void,
   theme: ThemeId,
-  collabPaneVisible: boolean
+  collabPaneVisible: boolean,
+  minimapEnabled: boolean,
+  mdOutlineEnabled: boolean
 ): void {
   const recentItems =
     recent.length === 0
@@ -54,11 +57,23 @@ export function buildMenu(
       label: '表示',
       submenu: [
         {
-          label: '右パネル',
+          label: 'AIパネル',
           type: 'checkbox',
           checked: collabPaneVisible,
           accelerator: 'CmdOrCtrl+\\',
           click: () => send('toggle-right')
+        },
+        {
+          label: 'ミニマップ',
+          type: 'checkbox',
+          checked: minimapEnabled,
+          click: () => send('toggle-minimap')
+        },
+        {
+          label: 'Markdown の見出し',
+          type: 'checkbox',
+          checked: mdOutlineEnabled,
+          click: () => send('toggle-md-outline')
         },
         { type: 'separator' },
         {
@@ -100,6 +115,9 @@ export function buildMenu(
     {
       label: 'ヘルプ',
       submenu: [
+        { label: 'ヘルプを開く', accelerator: 'F1', click: () => showHelpWindow(win, theme) },
+        { label: 'AIヘルプ', click: () => showAiHelpWindow(win, theme) },
+        { type: 'separator' },
         {
           label: '共同編集について',
           click: () => send('collab-notice')

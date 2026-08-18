@@ -1,4 +1,4 @@
-import { lazy, Suspense, useLayoutEffect, useRef } from 'react'
+import { lazy, Suspense, useLayoutEffect, useRef, useState } from 'react'
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type { MarkdownPreviewHandle } from './MarkdownPreview'
 import { bindEditor, getTabDoc, getText, unbindEditor } from '../lib/docs'
@@ -9,6 +9,7 @@ import { monacoThemeOf } from '../lib/monacoEnv'
 import { lineOfSection, parseMdSections, sectionAtLine } from '../lib/mdSync'
 import { setMdSplitPct } from '../lib/actions'
 import { useAppStore } from '../store'
+import { MdOutline } from './MdOutline'
 
 const MarkdownPreview = lazy(() => import('./MarkdownPreview').then((m) => ({ default: m.MarkdownPreview })))
 
@@ -19,17 +20,22 @@ type Props = {
 export function EditorPane({ tabId }: Props): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
+  const mainRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const previewRef = useRef<MarkdownPreviewHandle>(null)
   const boundId = useRef<string | null>(null)
   const ignoreScroll = useRef(false)
   const lastSection = useRef(-1)
+  const [mdResizing, setMdResizing] = useState(false)
   const setCursor = useAppStore((s) => s.setCursor)
   const tab = useAppStore((s) => s.tabs.find((item) => item.id === tabId))
   const mdView = tab && isMarkdownLanguage(tab.language) ? tab.mdView : 'edit'
   const showPreview = mdView === 'split' || mdView === 'preview'
   const splitPct = tab?.mdSplitPct ?? 50
   const scrollSync = tab?.mdScrollSync ?? true
+  const minimapEnabled = useAppStore((s) => s.minimapEnabled)
+  const mdOutlineEnabled = useAppStore((s) => s.mdOutlineEnabled)
+  const showOutline = Boolean(tab && isMarkdownLanguage(tab.language) && mdOutlineEnabled && mdView !== 'preview')
 
   useLayoutEffect(() => {
     if (!hostRef.current) return
@@ -41,9 +47,8 @@ export function EditorPane({ tabId }: Props): React.JSX.Element {
       automaticLayout: true,
       fontSize: 14,
       fontFamily: 'Cascadia Code, Consolas, Meiryo, sans-serif',
-      minimap: { enabled: false },
+      minimap: { enabled: useAppStore.getState().minimapEnabled },
       wordWrap: 'on',
-      padding: { top: 12 },
       smoothScrolling: true,
       cursorBlinking: 'smooth',
       renderLineHighlight: 'line',
@@ -105,6 +110,10 @@ export function EditorPane({ tabId }: Props): React.JSX.Element {
   }, [setCursor])
 
   useLayoutEffect(() => {
+    editorRef.current?.updateOptions({ minimap: { enabled: minimapEnabled } })
+  }, [minimapEnabled])
+
+  useLayoutEffect(() => {
     const editor = editorRef.current
     const doc = getTabDoc(tabId)
     if (!editor || !doc) return
@@ -135,6 +144,8 @@ export function EditorPane({ tabId }: Props): React.JSX.Element {
       className={`editor-stage ${mdView}`}
       ref={stageRef}
     >
+      {showOutline ? <MdOutline tabId={tabId} /> : null}
+      <div className="editor-main" ref={mainRef}>
       <div
         className="editor-host"
         ref={hostRef}
@@ -142,16 +153,20 @@ export function EditorPane({ tabId }: Props): React.JSX.Element {
       />
       {mdView === 'split' && (
         <div
-          className="md-splitter"
+          className={`md-splitter${mdResizing ? ' active' : ''}`}
           onMouseDown={(e) => {
             e.preventDefault()
-            const stage = stageRef.current
+            const stage = mainRef.current
             if (!stage) return
+            setMdResizing(true)
+            document.body.classList.add('is-resizing-panels')
             const onMove = (ev: MouseEvent): void => {
               const rect = stage.getBoundingClientRect()
               setMdSplitPct(tabId, ((ev.clientX - rect.left) / rect.width) * 100)
             }
             const onUp = (): void => {
+              setMdResizing(false)
+              document.body.classList.remove('is-resizing-panels')
               window.removeEventListener('mousemove', onMove)
               window.removeEventListener('mouseup', onUp)
             }
@@ -161,7 +176,7 @@ export function EditorPane({ tabId }: Props): React.JSX.Element {
         />
       )}
       {showPreview && (
-        <Suspense fallback={<div className="md-preview" />}>
+        <Suspense fallback={<div className="md-preview-wrap" />}>
           <MarkdownPreview
             ref={previewRef}
             tabId={tabId}
@@ -169,6 +184,7 @@ export function EditorPane({ tabId }: Props): React.JSX.Element {
           />
         </Suspense>
       )}
+      </div>
     </div>
   )
 }

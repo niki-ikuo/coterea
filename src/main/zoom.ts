@@ -1,4 +1,5 @@
 import type { BrowserWindow, Input } from 'electron'
+import { TITLEBAR_HEIGHT } from '../shared/theme'
 
 const MIN_LEVEL = -6
 const MAX_LEVEL = 8
@@ -40,10 +41,20 @@ function applyZoom(win: BrowserWindow, action: ZoomAction): void {
   const contents = win.webContents
   if (action === 'reset') {
     contents.setZoomLevel(0)
-    return
+  } else {
+    const next = contents.getZoomLevel() + (action === 'in' ? STEP : -STEP)
+    contents.setZoomLevel(Math.min(MAX_LEVEL, Math.max(MIN_LEVEL, next)))
   }
-  const next = contents.getZoomLevel() + (action === 'in' ? STEP : -STEP)
-  contents.setZoomLevel(Math.min(MAX_LEVEL, Math.max(MIN_LEVEL, next)))
+  syncTitleBarOverlayHeight(win)
+}
+
+export function titleBarOverlayHeight(zoomFactor: number): number {
+  return Math.max(1, Math.ceil(TITLEBAR_HEIGHT * zoomFactor) - 1)
+}
+
+export function syncTitleBarOverlayHeight(win: BrowserWindow): void {
+  if (process.platform !== 'win32' || win.isDestroyed() || win.webContents.isDestroyed()) return
+  win.setTitleBarOverlay({ height: titleBarOverlayHeight(win.webContents.getZoomFactor()) })
 }
 
 function zoomActionOf(input: Input): ZoomAction | null {

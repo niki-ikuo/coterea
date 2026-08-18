@@ -4,12 +4,12 @@ import { StatusBar } from './components/StatusBar'
 import { TabBar } from './components/TabBar'
 import { TitleBar } from './components/TitleBar'
 import { attachCollabListeners, enableCollab } from './lib/collab'
-import { closeTab, createUntitled, cycleMdView, cycleTab, handleAppClose, openDialog, openPaths, openPathsFromShell, openSettingsTab, saveActive, setMdView, toggleCollabPane, attachFileWatch } from './lib/actions'
+import { closeTab, createUntitled, cycleMdView, cycleTab, handleAppClose, openDialog, openPaths, openPathsFromShell, openSettingsTab, saveActive, setCollabPaneVisible, setMdView, toggleCollabPane, toggleMdOutline, toggleMinimap, attachFileWatch } from './lib/actions'
 import { attachAiListeners, loadChat } from './lib/chat'
 import { preloadEditor, applyLoadedMonacoTheme } from './lib/editorReady'
 import { applyUiTheme } from './lib/uiTheme'
 import { getActiveEditor } from './lib/editorHandle'
-import { isSettingsTab, useAppStore } from './store'
+import { isSettingsTab, isVirtualTab, useAppStore } from './store'
 import { parseTheme } from '../../shared/theme'
 import { attachSessionPersist, enableSessionPersist, restoreSession } from './lib/workspaceSession'
 import { SettingsPane } from './components/SettingsPane'
@@ -27,6 +27,8 @@ function bootApp(): Promise<void> {
         const s = await window.coterea.settings.get()
         useAppStore.getState().setDisplayName(s.displayName)
         useAppStore.getState().setCollabPaneVisible(s.collabPaneVisible === true)
+        useAppStore.getState().setMinimapEnabled(s.minimapEnabled === true)
+        useAppStore.getState().setMdOutlineEnabled(s.mdOutlineEnabled !== false)
         const theme = parseTheme(s.theme)
         useAppStore.getState().setTheme(theme)
         applyUiTheme(theme)
@@ -60,6 +62,7 @@ export function App(): React.JSX.Element {
   const localPeerId = useAppStore((s) => s.collab.localPeerId)
   const [rightWidth, setRightWidth] = useState(35)
   const [booted, setBooted] = useState(false)
+  const [resizing, setResizing] = useState(false)
   const dragging = useRef(false)
 
   useEffect(() => {
@@ -73,6 +76,9 @@ export function App(): React.JSX.Element {
     })
     const offSettings = window.coterea.settings.onChange((next) => {
       useAppStore.getState().setDisplayName(next.displayName)
+      useAppStore.getState().setCollabPaneVisible(next.collabPaneVisible === true)
+      useAppStore.getState().setMinimapEnabled(next.minimapEnabled === true)
+      useAppStore.getState().setMdOutlineEnabled(next.mdOutlineEnabled !== false)
       const applied = parseTheme(next.theme)
       useAppStore.getState().setTheme(applied)
       applyUiTheme(applied)
@@ -112,7 +118,13 @@ export function App(): React.JSX.Element {
         getActiveEditor()?.trigger('menu', 'editor.action.startFindReplaceAction', null)
       }
       if (action === 'toggle-right') void toggleCollabPane()
-      if (action === 'settings') openSettingsTab()
+      if (action === 'show-right') void setCollabPaneVisible(true)
+      if (action === 'toggle-minimap') void toggleMinimap()
+      if (action === 'toggle-md-outline') void toggleMdOutline()
+      if (action === 'settings') {
+        const section = extra === 'appearance' || extra === 'ai' || extra === 'general' ? extra : undefined
+        openSettingsTab(section)
+      }
       if (action === 'theme' && extra) {
         const theme = parseTheme(extra)
         void window.coterea.settings.set({ theme }).then((next) => {
@@ -160,7 +172,10 @@ export function App(): React.JSX.Element {
       setRightWidth(Math.min(48, Math.max(22, pct)))
     }
     const onUp = (): void => {
+      if (!dragging.current) return
       dragging.current = false
+      setResizing(false)
+      document.body.classList.remove('is-resizing-panels')
     }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
@@ -173,7 +188,7 @@ export function App(): React.JSX.Element {
   const activeTab = tabs.find((t) => t.id === activeTabId)
   const hasSettingsTab = tabs.some(isSettingsTab)
   const settingsOpen = Boolean(activeTab && isSettingsTab(activeTab))
-  const showEditor = Boolean(activeTabId && activeTab && !settingsOpen)
+  const showEditor = Boolean(activeTabId && activeTab && !isVirtualTab(activeTab))
 
   return (
     <div className="app">
@@ -231,9 +246,11 @@ export function App(): React.JSX.Element {
         {collabPaneVisible && (
           <>
             <div
-              className="splitter"
+              className={`splitter${resizing ? ' active' : ''}`}
               onMouseDown={() => {
                 dragging.current = true
+                setResizing(true)
+                document.body.classList.add('is-resizing-panels')
               }}
             />
             <div className="right-wrap" style={{ width: `${rightWidth}%` }}>

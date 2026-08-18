@@ -94,6 +94,9 @@ const api = {
     confirmClose: () => ipcRenderer.invoke('app:confirmClose'),
     openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
     showSettings: (): Promise<void> => ipcRenderer.invoke('app:showSettings'),
+    showHelp: (docId?: string): Promise<void> => ipcRenderer.invoke('app:showHelp', docId),
+    showAiHelp: (): Promise<void> => ipcRenderer.invoke('app:showAiHelp'),
+    helpCommand: (command: string): Promise<void> => ipcRenderer.invoke('app:helpCommand', command),
     getAboutInfo: (): Promise<AboutInfo> => ipcRenderer.invoke('app:getAboutInfo'),
     showCollabNotice: (): Promise<void> => ipcRenderer.invoke('app:showCollabNotice'),
     writeClipboard: (text: string): Promise<void> => ipcRenderer.invoke('app:writeClipboard', text),
@@ -154,6 +157,18 @@ const api = {
   chat: {
     get: () => ipcRenderer.invoke('chat:get'),
     set: (history: import('../shared/ai').ChatHistoryFile) => ipcRenderer.invoke('chat:set', history)
+  },
+  help: {
+    list: () => ipcRenderer.invoke('help:list'),
+    get: (id: string) => ipcRenderer.invoke('help:get', id),
+    search: (query: string) => ipcRenderer.invoke('help:search', query),
+    ask: (request: import('../shared/help').HelpAskRequest) => ipcRenderer.invoke('help:ask', request),
+    cancelAsk: () => ipcRenderer.invoke('help:cancelAsk'),
+    onOpenDoc: (cb: (id: string) => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, id: string): void => cb(id)
+      ipcRenderer.on('help:open-doc', listener)
+      return () => ipcRenderer.removeListener('help:open-doc', listener)
+    }
   }
 }
 

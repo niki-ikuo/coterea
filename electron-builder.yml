@@ -15,6 +15,9 @@ files:
 asarUnpack:
   - resources/**
   - node_modules/koffi/**
+extraResources:
+  - from: helps
+    to: helps
 win:
   executableName: Coterea
   icon: icon.ico

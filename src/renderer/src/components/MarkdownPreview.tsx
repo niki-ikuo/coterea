@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import { Marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { getTabDoc, getText } from '../lib/docs'
+import { OverlayScroll } from './OverlayScroll'
 
 type Props = {
   tabId: string
@@ -86,23 +87,26 @@ export const MarkdownPreview = forwardRef<MarkdownPreviewHandle, Props>(function
   }, [tabId])
 
   return (
-    <div
-      ref={elRef}
-      className="md-preview"
-      onScroll={() => {
+    <OverlayScroll
+      className="md-preview-wrap"
+      viewClassName="md-preview"
+      scrollerRef={elRef}
+      contentKey={html}
+      onViewScroll={() => {
         const el = elRef.current
         if (!el || ignore.current || !onSection) return
         onSection(sectionFromPreview(el))
       }}
-      onClick={(e) => {
+      onViewClick={(e) => {
         const anchor = (e.target as HTMLElement).closest('a')
         if (!anchor) return
         e.preventDefault()
         const href = anchor.getAttribute('href')
         if (href && /^https?:\/\//i.test(href)) void window.coterea.app.openExternal(href)
       }}
-      dangerouslySetInnerHTML={{ __html: html || '<p class="muted">（空）</p>' }}
-    />
+    >
+      <div dangerouslySetInnerHTML={{ __html: html || '<p class="muted">（空）</p>' }} />
+    </OverlayScroll>
   )
 })
 

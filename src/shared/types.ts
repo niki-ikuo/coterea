@@ -43,6 +43,8 @@ export interface AppSettings {
   theme: import('./theme').ThemeId
   collabPaneVisible: boolean
   collabLanNoticeShown: boolean
+  minimapEnabled: boolean
+  mdOutlineEnabled: boolean
   providerId?: import('./ai').AiProviderId
   apiBaseUrl?: string
   model?: string

@@ -20,21 +20,21 @@ export const THEMES: { id: ThemeId; label: string }[] = [
 export const TITLEBAR_HEIGHT = 36
 
 export const THEME_WINDOW_BG: Record<ThemeId, string> = {
-  'win-light': '#f3f3f3',
-  'win-dark': '#202020',
+  'win-light': '#ffffff',
+  'win-dark': '#1e1e1e',
   'hc-light': '#ffffff',
   'hc-dark': '#000000',
-  'warm-light': '#f7f4ef',
-  'warm-dark': '#1c1917'
+  'warm-light': '#f5f0e6',
+  'warm-dark': '#1a1f1a'
 }
 
 export const THEME_TITLEBAR_OVERLAY: Record<ThemeId, { color: string; symbolColor: string }> = {
-  'win-light': { color: '#f3f3f3', symbolColor: '#1a1a1a' },
-  'win-dark': { color: '#202020', symbolColor: '#ffffff' },
+  'win-light': { color: '#f3f3f3', symbolColor: '#1e1e1e' },
+  'win-dark': { color: '#252526', symbolColor: '#cccccc' },
   'hc-light': { color: '#ffffff', symbolColor: '#000000' },
   'hc-dark': { color: '#000000', symbolColor: '#ffffff' },
-  'warm-light': { color: '#efeae3', symbolColor: '#292524' },
-  'warm-dark': { color: '#161311', symbolColor: '#f5f0e8' }
+  'warm-light': { color: '#ebe4d6', symbolColor: '#3d3429' },
+  'warm-dark': { color: '#212821', symbolColor: '#d4e0d4' }
 }
 
 const IDS = new Set<string>(THEMES.map((t) => t.id))

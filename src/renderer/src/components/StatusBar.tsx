@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { encodingLabel, ENCODINGS, type EncodingId } from '../../../shared/encoding'
 import { reopenWithEncoding, setTabEncoding, cycleMdView } from '../lib/actions'
 import { isMarkdownLanguage, languageLabel } from '../lib/fileMeta'
-import { isSettingsTab, useAppStore } from '../store'
+import { isVirtualTab, useAppStore } from '../store'
 import { CollabFold } from './CollabFold'
 
 export function StatusBar(): React.JSX.Element {
@@ -19,8 +19,8 @@ export function StatusBar(): React.JSX.Element {
       <span>
         行 {line} : 列 {column}
       </span>
-      {tab && isSettingsTab(tab) ? (
-        <span>設定</span>
+      {tab && isVirtualTab(tab) ? (
+        <span>{tab.title}</span>
       ) : (
         <>
           <span>{languageLabel(tab?.language ?? 'plaintext')}</span>

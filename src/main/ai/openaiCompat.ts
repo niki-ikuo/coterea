@@ -95,8 +95,10 @@ export async function streamChatCompletion(input: {
     max_tokens: input.maxTokens ?? AI_DEFAULT_MAX_TOKENS,
     stream: true
   }
-  if (input.tools) body.tools = input.tools
-  if (input.toolChoice) body.tool_choice = input.toolChoice
+  if (input.tools) {
+    body.tools = input.tools
+    if (input.toolChoice) body.tool_choice = input.toolChoice
+  }
 
   const res = await fetch(url, {
     method: 'POST',

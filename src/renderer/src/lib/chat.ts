@@ -2,6 +2,9 @@ import {
   cannotDeleteLastThread,
   classifyApplyCollision,
   emptyThread,
+  historyChatThreads,
+  isThreadOpen,
+  openChatThreads,
   titleFromPrompt,
   type ChatMessage,
   type ChatMode,
@@ -11,7 +14,7 @@ import { markDirty } from './collab'
 import { preloadEditor } from './editorReady'
 import { getActiveEditor } from './editorHandle'
 import { openSettingsTab } from './actions'
-import { isSettingsTab, useAppStore } from '../store'
+import { isVirtualTab, useAppStore } from '../store'
 import type { AiStreamEvent, AiToolRequest } from '../../../shared/api'
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null
@@ -41,7 +44,17 @@ export function activeThread(): ChatThread | undefined {
 
 export async function loadChat(): Promise<void> {
   const history = await window.coterea.chat.get()
-  useAppStore.getState().setChat(history)
+  let { threads, activeId } = history
+  let open = openChatThreads(threads)
+  if (open.length === 0) {
+    const fresh = emptyThread(crypto.randomUUID())
+    threads = [...threads, fresh]
+    activeId = fresh.id
+    open = [fresh]
+  } else if (!open.some((t) => t.id === activeId)) {
+    activeId = open[0].id
+  }
+  useAppStore.getState().setChat({ activeId, threads })
   const status = await window.coterea.ai.status()
   useAppStore.getState().setAiStatus(status)
 }
@@ -72,16 +85,68 @@ export function renameThread(id: string, title: string): void {
 
 export function closeThread(id: string): void {
   const chat = useAppStore.getState().chat
-  if (cannotDeleteLastThread(chat.threads.length)) {
-    patchActiveThread((t) => ({ ...t, title: '新しい会話', messages: [], draft: '', updatedAt: Date.now() }))
+  const target = chat.threads.find((t) => t.id === id)
+  if (!target) return
+  const openThreads = openChatThreads(chat.threads)
+  const hasContent = target.messages.some((m) => m.role === 'user' || m.content)
+
+  if (!hasContent) {
+    if (cannotDeleteLastThread(openThreads.length)) {
+      patchActiveThread((t) => ({ ...t, title: '新しい会話', messages: [], draft: '', updatedAt: Date.now(), open: true }))
+      return
+    }
+    const threads = chat.threads.filter((t) => t.id !== id)
+    const nextOpen = openChatThreads(threads)
+    const activeId = chat.activeId === id ? nextOpen[nextOpen.length - 1]?.id ?? threads[0].id : chat.activeId
+    useAppStore.getState().setChat({ activeId, threads })
+    persistSoon()
     return
   }
-  if (!window.confirm('この会話スレッドを削除しますか？履歴は戻りません。')) return
-  const threads = chat.threads.filter((t) => t.id !== id)
-  const activeId = chat.activeId === id ? threads[threads.length - 1].id : chat.activeId
+
+  let threads = chat.threads.map((t) => (t.id === id ? { ...t, open: false, updatedAt: Date.now() } : t))
+  let activeId = chat.activeId
+  if (activeId === id) {
+    const stillOpen = openChatThreads(threads)
+    if (stillOpen.length === 0) {
+      const fresh = emptyThread(crypto.randomUUID())
+      threads = [...threads, fresh]
+      activeId = fresh.id
+    } else {
+      activeId = stillOpen[stillOpen.length - 1].id
+    }
+  }
   useAppStore.getState().setChat({ activeId, threads })
   persistSoon()
 }
+
+export function reopenThread(id: string): void {
+  const chat = useAppStore.getState().chat
+  if (!chat.threads.some((t) => t.id === id)) return
+  useAppStore.getState().setChat({
+    activeId: id,
+    threads: chat.threads.map((t) => (t.id === id ? { ...t, open: true } : t))
+  })
+  persistSoon()
+}
+
+export function deleteThreadHistory(id: string): void {
+  const chat = useAppStore.getState().chat
+  const target = chat.threads.find((t) => t.id === id)
+  if (!target) return
+  if (!window.confirm(`「${target.title}」を履歴から完全に削除しますか？`)) return
+  let threads = chat.threads.filter((t) => t.id !== id)
+  if (threads.length === 0) threads = [emptyThread(crypto.randomUUID())]
+  if (openChatThreads(threads).length === 0) {
+    const fresh = emptyThread(crypto.randomUUID())
+    threads = [...threads, fresh]
+  }
+  const open = openChatThreads(threads)
+  const activeId = open.some((t) => t.id === chat.activeId) ? chat.activeId : open[open.length - 1].id
+  useAppStore.getState().setChat({ activeId, threads })
+  persistSoon()
+}
+
+export { historyChatThreads, isThreadOpen, openChatThreads }
 
 export function setThreadMode(mode: ChatMode): void {
   patchActiveThread((t) => ({ ...t, mode, updatedAt: Date.now() }))
@@ -113,7 +178,7 @@ async function buildContext(): Promise<{ content: string; selection: { from: num
   const tab = tabs.find((t) => t.id === activeTabId)
   const { getText } = await preloadEditor()
   const selection = selectionOfActive()
-  if (!tab || isSettingsTab(tab)) return { content: '[開いているファイルはありません]', selection: null }
+  if (!tab || isVirtualTab(tab)) return { content: '[開いているファイルはありません]', selection: null }
   const body = getText(tab.id)
   let content = `[現在のファイル: ${tab.title}]\nid: ${tab.id}\nlanguage: ${tab.language}\n\n${body}`
   if (selection) content += `\n\n[選択範囲]\n${selection.text}`
@@ -136,7 +201,8 @@ export async function sendChat(): Promise<void> {
     id: crypto.randomUUID(),
     role: 'user',
     content: text,
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    mode: thread.mode
   }
   const assistantId = crypto.randomUUID()
   const assistantMsg: ChatMessage = {
@@ -270,14 +336,14 @@ function handleTool(payload: { requestId: string } & AiToolRequest): void {
         requestId: payload.requestId,
         callId: payload.callId,
         result: JSON.stringify(
-          tabs.filter((t) => !isSettingsTab(t)).map((t) => ({ id: t.id, name: t.title, language: t.language }))
+          tabs.filter((t) => !isVirtualTab(t)).map((t) => ({ id: t.id, name: t.title, language: t.language }))
         )
       })
       return
     }
     if (payload.name === 'read_tab' || payload.name === 'snapshot_tab') {
       const tab = tabs.find((t) => t.id === payload.tabId)
-      if (!tab || isSettingsTab(tab)) {
+      if (!tab || isVirtualTab(tab)) {
         window.coterea.ai.toolResult({
           requestId: payload.requestId,
           callId: payload.callId,

@@ -10,7 +10,7 @@ import {
   shouldApplyCollabSnapshot,
   type FileOffer
 } from '../../../shared/fileSession'
-import { isSettingsTab, useAppStore, type TabInfo } from '../store'
+import { isVirtualTab, useAppStore, type TabInfo } from '../store'
 import { preloadEditor } from './editorReady'
 import type * as Docs from './docs'
 
@@ -378,7 +378,7 @@ export function sendPresence(): void {
   if (!isCollabActive()) return
   const { activeTabId, tabs, collab } = useAppStore.getState()
   const tab = tabs.find((t) => t.id === activeTabId)
-  const fileTab = tab && !isSettingsTab(tab) ? tab : undefined
+  const fileTab = tab && !isVirtualTab(tab) ? tab : undefined
   window.coterea.collab.send({
     type: 'presence',
     docId: fileTab?.id ?? null,

@@ -102,6 +102,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'tool'
   content: string
   createdAt: number
+  mode?: ChatMode
   toolName?: string
   proposal?: ProposedEdit
   proposalStatus?: ProposalStatus
@@ -114,6 +115,8 @@ export interface ChatThread {
   messages: ChatMessage[]
   draft?: string
   updatedAt: number
+  /** false のときタブからは外し、履歴一覧から再開できる */
+  open?: boolean
 }
 
 export interface ChatHistoryFile {
@@ -176,8 +179,23 @@ export function emptyThread(id: string, now = Date.now()): ChatThread {
     mode: 'ask',
     messages: [],
     draft: '',
-    updatedAt: now
+    updatedAt: now,
+    open: true
   }
+}
+
+export function isThreadOpen(thread: Pick<ChatThread, 'open'>): boolean {
+  return thread.open !== false
+}
+
+export function openChatThreads(threads: ChatThread[]): ChatThread[] {
+  return threads.filter(isThreadOpen)
+}
+
+export function historyChatThreads(threads: ChatThread[]): ChatThread[] {
+  return [...threads]
+    .filter((t) => t.messages.some((m) => m.role === 'user' || m.content))
+    .sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
 export function defaultChatHistory(now = Date.now()): ChatHistoryFile {
@@ -212,7 +230,8 @@ function sanitizeThread(raw: unknown): ChatThread | null {
     mode,
     messages,
     draft: typeof data.draft === 'string' ? data.draft : '',
-    updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : Date.now()
+    updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : Date.now(),
+    open: data.open !== false
   }
 }
 
@@ -226,6 +245,7 @@ function sanitizeMessage(raw: unknown): ChatMessage | null {
     role: data.role,
     content: typeof data.content === 'string' ? data.content : '',
     createdAt: typeof data.createdAt === 'number' ? data.createdAt : Date.now(),
+    mode: data.mode === 'ask' || data.mode === 'edit' || data.mode === 'agent' ? data.mode : undefined,
     toolName: typeof data.toolName === 'string' ? data.toolName : undefined,
     proposal: data.proposal ? sanitizeProposal(data.proposal) : undefined,
     proposalStatus:

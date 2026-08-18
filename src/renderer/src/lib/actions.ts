@@ -1,7 +1,7 @@
 import { languageFromPath, titleFromPath, isMarkdownLanguage } from './fileMeta'
 import { announceNewDoc, flushPendingSaves, forgetSavedText, isCollabActive, isTabSaving, persistTab, publishManifest, rememberSavedText, savedTextOf, withSuppressDirty } from './collab'
 import { preloadEditor } from './editorReady'
-import { isSettingsTab, useAppStore, type MdView, type TabInfo } from '../store'
+import { isSettingsTab, isVirtualTab, useAppStore, type MdView, type TabInfo } from '../store'
 import { DEFAULT_ENCODING, type EncodingId } from '../../../shared/encoding'
 import { idsOverlap } from '../../../shared/fileSession'
 import { shouldPromptExternalChange, normalizeText } from '../../../shared/externalChange'
@@ -55,19 +55,13 @@ export async function createUntitled(
   return tab
 }
 
-export function openSettingsTab(section?: SettingsSection): void {
-  if (section) requestSettingsSection(section)
-  const existing = useAppStore.getState().tabs.find(isSettingsTab)
-  if (existing) {
-    useAppStore.getState().setActiveTabId(existing.id)
-    return
-  }
-  const tab: TabInfo = {
-    id: SETTINGS_TAB_ID,
-    kind: 'settings',
+function specialTab(id: string, kind: TabInfo['kind'], title: string): TabInfo {
+  return {
+    id,
+    kind,
     path: null,
     hostPath: null,
-    title: '設定',
+    title,
     language: 'plaintext',
     isDirty: false,
     encoding: DEFAULT_ENCODING,
@@ -77,8 +71,44 @@ export function openSettingsTab(section?: SettingsSection): void {
     mdScrollSync: true,
     saveError: null
   }
+}
+
+function openSpecialTab(id: string, kind: TabInfo['kind'], title: string): void {
+  const existing = useAppStore.getState().tabs.find((t) => t.kind === kind)
+  if (existing) {
+    useAppStore.getState().setActiveTabId(existing.id)
+    return
+  }
+  const tab = specialTab(id, kind, title)
   useAppStore.getState().setTabs((tabs) => [...tabs, tab])
   useAppStore.getState().setActiveTabId(tab.id)
+}
+
+export function openSettingsTab(section?: SettingsSection): void {
+  if (section) requestSettingsSection(section)
+  openSpecialTab(SETTINGS_TAB_ID, 'settings', '設定')
+}
+
+export async function toggleMinimap(): Promise<void> {
+  const next = !useAppStore.getState().minimapEnabled
+  useAppStore.getState().setMinimapEnabled(next)
+  await window.coterea.settings.set({ minimapEnabled: next })
+}
+
+export async function toggleMdOutline(): Promise<void> {
+  const next = !useAppStore.getState().mdOutlineEnabled
+  useAppStore.getState().setMdOutlineEnabled(next)
+  await window.coterea.settings.set({ mdOutlineEnabled: next })
+}
+
+export async function setMinimapEnabled(enabled: boolean): Promise<void> {
+  useAppStore.getState().setMinimapEnabled(enabled)
+  await window.coterea.settings.set({ minimapEnabled: enabled })
+}
+
+export async function setMdOutlineEnabled(enabled: boolean): Promise<void> {
+  useAppStore.getState().setMdOutlineEnabled(enabled)
+  await window.coterea.settings.set({ mdOutlineEnabled: enabled })
 }
 
 function watchPath(filePath: string | null): void {
@@ -222,7 +252,7 @@ export async function openPaths(paths: string[]): Promise<void> {
     const current = useAppStore.getState()
     const existing = current.tabs.find(
       (t) =>
-        !isSettingsTab(t) &&
+        t.kind === 'file' &&
         (t.path === filePath || t.path === read.path || idsOverlap(t.fileIds, read.fileIds))
     )
     if (existing) {
@@ -329,7 +359,7 @@ export async function closeTab(tabId: string): Promise<void> {
       await revertOpenSettings()
     }
   }
-  if (!isSettingsTab(tab)) {
+  if (!isVirtualTab(tab)) {
     unwatchIfUnused(tab.path, tabId)
     const { disposeTabDoc } = await preloadEditor()
     disposeTabDoc(tabId)

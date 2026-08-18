@@ -11,16 +11,19 @@ import type { ControlMessage } from './collab/frame'
 import type { WriteFileResult } from '../shared/types'
 import { parseEncoding } from './encoding'
 import { DEFAULT_ENCODING } from '../shared/encoding'
-import { isDarkTheme, parseTheme, THEME_TITLEBAR_OVERLAY, THEME_WINDOW_BG, TITLEBAR_HEIGHT, type ThemeId } from '../shared/theme'
+import { isDarkTheme, parseTheme, THEME_TITLEBAR_OVERLAY, THEME_WINDOW_BG, type ThemeId } from '../shared/theme'
 import { loadRenderer } from './loadRenderer'
 import { filesFromArgv } from './openFromShell'
 import { isUnsupportedOpen } from '../shared/openPolicy'
-import { attachZoomShortcuts } from './zoom'
+import { attachZoomShortcuts, titleBarOverlayHeight } from './zoom'
 import { attachAppShortcuts } from './shortcuts'
 import { getAboutInfo } from './about'
+import { showAiHelpWindowFromSender, showHelpWindowFromSender } from './helpWindows'
 import { SecretStore } from './secrets'
 import { ChatHistoryStore } from './chatStore'
 import { abortAi, aiStatusFrom, resolveToolResult, startAiChat } from './ai/run'
+import { askHelp, cancelHelpAsk } from './helpAsk'
+import { getHelpDoc, listHelpDocs, searchHelpDocs } from './help'
 import type { ChatHistoryFile } from '../shared/ai'
 import type { AiChatRequest } from '../shared/api'
 import appIcon from '../../resources/icon.png?asset'
@@ -68,19 +71,21 @@ async function refreshMenu(): Promise<void> {
     store.getRecent(),
     sendMenu,
     parseTheme(store.getSettings().theme),
-    store.getSettings().collabPaneVisible === true
+    store.getSettings().collabPaneVisible === true,
+    store.getSettings().minimapEnabled === true,
+    store.getSettings().mdOutlineEnabled !== false
   )
   if (!mainWindow.isDestroyed()) {
     mainWindow.setMenuBarVisibility(false)
   }
 }
 
-function titleBarOverlayOptions(theme: ThemeId): Electron.TitleBarOverlay {
+function titleBarOverlayOptions(theme: ThemeId, zoomFactor = 1): Electron.TitleBarOverlay {
   const overlay = THEME_TITLEBAR_OVERLAY[theme]
   return {
     color: overlay.color,
     symbolColor: overlay.symbolColor,
-    height: TITLEBAR_HEIGHT
+    height: titleBarOverlayHeight(zoomFactor)
   }
 }
 
@@ -88,7 +93,8 @@ function applyWindowChrome(win: BrowserWindow, theme: ThemeId): void {
   nativeTheme.themeSource = isDarkTheme(theme) ? 'dark' : 'light'
   win.setBackgroundColor(THEME_WINDOW_BG[theme])
   if (process.platform === 'win32') {
-    win.setTitleBarOverlay(titleBarOverlayOptions(theme))
+    const zoomFactor = win.webContents.isDestroyed() ? 1 : win.webContents.getZoomFactor()
+    win.setTitleBarOverlay(titleBarOverlayOptions(theme, zoomFactor))
   }
 }
 
@@ -252,6 +258,20 @@ function registerIpc(): void {
   ipcMain.handle('app:showSettings', () => {
     sendMenu('settings')
   })
+  ipcMain.handle('app:showHelp', (event, docId?: unknown) => {
+    showHelpWindowFromSender(event.sender, parseTheme(store.getSettings().theme), typeof docId === 'string' ? docId : undefined)
+  })
+  ipcMain.handle('app:showAiHelp', (event) => {
+    showAiHelpWindowFromSender(event.sender, parseTheme(store.getSettings().theme))
+  })
+  ipcMain.handle('app:helpCommand', (_event, command: unknown) => {
+    if (typeof command !== 'string') return
+    if (command === 'Open Settings') sendMenu('settings')
+    if (command === 'Open Appearance Settings') sendMenu('settings', 'appearance')
+    if (command === 'Open Provider') sendMenu('settings', 'ai')
+    if (command === 'Focus Chat') sendMenu('show-right')
+    mainWindow?.focus()
+  })
   ipcMain.handle('app:getAboutInfo', () => getAboutInfo())
   ipcMain.handle('app:showCollabNotice', async () => {
     if (!mainWindow) return
@@ -325,6 +345,30 @@ function registerIpc(): void {
   ipcMain.handle('chat:set', async (_e, history: ChatHistoryFile) => {
     await chatHistory.save(history)
   })
+  ipcMain.handle('help:list', () => listHelpDocs())
+  ipcMain.handle('help:get', (_e, id: unknown) => {
+    if (typeof id !== 'string') return Promise.reject(new Error('Invalid help path'))
+    return getHelpDoc(id)
+  })
+  ipcMain.handle('help:search', (_e, query: unknown) => searchHelpDocs(typeof query === 'string' ? query : ''))
+  ipcMain.handle('help:ask', (_e, request: unknown) => {
+    const question =
+      request && typeof request === 'object' && typeof (request as { question?: unknown }).question === 'string'
+        ? (request as { question: string; currentDocId?: string }).question
+        : ''
+    const currentDocId =
+      request && typeof request === 'object' && typeof (request as { currentDocId?: unknown }).currentDocId === 'string'
+        ? (request as { currentDocId: string }).currentDocId
+        : undefined
+    return askHelp(
+      {
+        getSettings: () => store.getSettings(),
+        getKey: () => secrets.load()
+      },
+      { question, currentDocId }
+    )
+  })
+  ipcMain.handle('help:cancelAsk', () => cancelHelpAsk())
 }
 
 const gotLock = app.requestSingleInstanceLock()
