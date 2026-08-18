@@ -58,16 +58,28 @@ export function collectAwarenessClientIds(
   previousIds: ReadonlySet<number>,
   localClientId: number
 ): number[] {
-  const ids: number[] = []
+  if (!fromPeerId) return []
+  const claimed: number[] = []
+  const unknownNew: number[] = []
   for (const [clientId, state] of states) {
     if (clientId === localClientId) continue
-    if (fromPeerId && state.user?.peerId === fromPeerId) {
-      ids.push(clientId)
+    const owner = state.user?.peerId
+    if (owner === fromPeerId) {
+      claimed.push(clientId)
       continue
     }
-    if (fromPeerId && !previousIds.has(clientId) && !state.user?.peerId) {
-      ids.push(clientId)
-    }
+    if (owner) continue
+    if (!previousIds.has(clientId)) unknownNew.push(clientId)
   }
-  return ids
+  if (claimed.length > 0) return claimed
+  return unknownNew.length === 1 ? unknownNew : []
+}
+
+export function clientIdsToDropForPeer(
+  states: Iterable<[number, AwarenessState]>,
+  peerId: string,
+  localClientId: number,
+  _indexedIds: number[]
+): number[] {
+  return clientIdsForPeer(states, peerId, localClientId)
 }

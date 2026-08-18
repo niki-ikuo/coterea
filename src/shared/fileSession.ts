@@ -38,6 +38,14 @@ export function electFileSaver(
   return remotes.reduce((best, cur) => (earlierPeer(cur, best) ? cur : best), me)
 }
 
+export function fileSessionSyncKey(syncGen: number, keys: string[], docId: string): string {
+  return `${syncGen}|${[...keys].sort().join('|')}|${docId}`
+}
+
+export function shouldApplyCollabSnapshot(appliedDocIds: Set<string>, docId: string): boolean {
+  return Boolean(docId) && !appliedDocIds.has(docId)
+}
+
 export function messageKeys(msg: Record<string, unknown>): string[] {
   if (Array.isArray(msg.keys) && msg.keys.every((k) => typeof k === 'string')) return msg.keys
   if (typeof msg.key === 'string') return [msg.key]

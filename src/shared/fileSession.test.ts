@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { earlierPeer, electFileSaver, idsOverlap, messageKeys, offerKeys } from './fileSession'
+import { earlierPeer, electFileSaver, fileSessionSyncKey, idsOverlap, messageKeys, offerKeys, shouldApplyCollabSnapshot } from './fileSession'
 
 describe('idsOverlap', () => {
   it('重なる識別子があれば同一実体', () => {
@@ -57,5 +57,21 @@ describe('offerKeys / messageKeys', () => {
     expect(messageKeys({ keys: ['x', 'y'] })).toEqual(['x', 'y'])
     expect(messageKeys({ key: 'x' })).toEqual(['x'])
     expect(messageKeys({})).toEqual([])
+  })
+})
+
+describe('collab snapshot / sync key', () => {
+  it('同期キーは参加者の増減では変わらない', () => {
+    const keys = ['unc:a/c$/f.txt']
+    expect(fileSessionSyncKey(1, keys, 'doc')).toBe(fileSessionSyncKey(1, keys, 'doc'))
+    expect(fileSessionSyncKey(1, keys, 'doc')).not.toBe(fileSessionSyncKey(2, keys, 'doc'))
+  })
+
+  it('一度載せた正本スナップショットは再適用しない', () => {
+    const applied = new Set<string>()
+    expect(shouldApplyCollabSnapshot(applied, 'd1')).toBe(true)
+    applied.add('d1')
+    expect(shouldApplyCollabSnapshot(applied, 'd1')).toBe(false)
+    expect(shouldApplyCollabSnapshot(applied, 'd2')).toBe(true)
   })
 })

@@ -13,20 +13,50 @@ export function stripExtended(pathStr: string): string {
   return pathStr
 }
 
-export function parseDosDeviceTarget(
-  target: string
-): { kind: 'unc'; server: string; share: string } | { kind: 'path'; path: string } | null {
+export type DosDeviceTarget =
+  | { kind: 'unc'; server: string; share: string; rest: string }
+  | { kind: 'path'; path: string }
+
+function joinUnderRoot(root: string, rest: string): string {
+  const base = root.replace(/\\$/, '')
+  const tail = rest.replace(/^\\+/, '')
+  return tail ? `${base}\\${tail}` : base
+}
+
+export function parseDosDeviceTarget(target: string): DosDeviceTarget | null {
   const t = target.split('\0')[0]?.trim() ?? ''
   if (!t) return null
   const subst = t.match(/^\\\?\?\\([A-Za-z]:\\.*)$/)
   if (subst) return { kind: 'path', path: subst[1] }
-  const redirector = t.match(
-    /\\(?:Device\\)?(?:Mup\\)?(?:LanmanRedirector|Mup)(?:\\;[^\\]*)?\\([^\\;][^\\]*)\\([^\\]+)/i
-  )
-  if (redirector) return { kind: 'unc', server: redirector[1], share: redirector[2] }
-  const mup = t.match(/^\\Device\\Mup\\([^\\]+)\\([^\\]+)/i)
-  if (mup) return { kind: 'unc', server: mup[1], share: mup[2] }
+  const uncNt = t.match(/^\\\?\?\\UNC\\([^\\]+)\\([^\\]+)(?:\\(.*))?$/i)
+  if (uncNt) return { kind: 'unc', server: uncNt[1], share: uncNt[2], rest: uncNt[3] ?? '' }
+
+  const parts = t.split('\\').filter((p) => p.length > 0)
+  let i = 0
+  if (parts[i]?.toLowerCase() === 'device') i += 1
+  const kind = parts[i]?.toLowerCase()
+  if (kind === 'mup' || kind === 'lanmanredirector') {
+    i += 1
+    while (i < parts.length && (parts[i].startsWith(';') || /^(mup|lanmanredirector)$/i.test(parts[i]))) {
+      i += 1
+    }
+    const server = parts[i]
+    const share = parts[i + 1]
+    if (server && share && !server.startsWith(';') && !share.startsWith(';')) {
+      return { kind: 'unc', server, share, rest: parts.slice(i + 2).join('\\') }
+    }
+  }
   return null
+}
+
+export function applyDosDeviceToDrivePath(winPath: string, deviceTarget: string): string | null {
+  const match = winPath.match(/^([A-Za-z]):\\(.*)$/)
+  if (!match) return null
+  const parsed = parseDosDeviceTarget(deviceTarget)
+  if (!parsed) return null
+  if (parsed.kind === 'path') return joinUnderRoot(parsed.path, match[2])
+  const shareRoot = `\\\\${parsed.server}\\${parsed.share}`
+  return joinUnderRoot(parsed.rest ? `${shareRoot}\\${parsed.rest}` : shareRoot, match[2])
 }
 
 export function parseNetShare(stdout: string): ShareMap {
@@ -96,6 +126,12 @@ export function aliasesForLocal(absPath: string, shares: ShareMap, hostAliases: 
   return ids
 }
 
+export function addUncHostAliases(ids: Set<string>, share: string, rest: string, hosts: string[]): void {
+  for (const host of hosts) {
+    if (host) ids.add(uncKey(host, share, rest))
+  }
+}
+
 export function fileIdsFromHandle(input: {
   expandedPath: string
   remote: boolean
@@ -105,17 +141,24 @@ export function fileIdsFromHandle(input: {
   thisHosts: Set<string>
   localAliases: string[]
   shares: ShareMap
+  extraUncHosts?: string[]
 }): string[] {
   const unc = splitUnc(input.expandedPath)
   const unresolvedRemote = input.remote && !unc && /^[A-Za-z]:\\/.test(input.expandedPath)
   if (unresolvedRemote) return []
 
+  const extras = input.extraUncHosts ?? []
   if (unc && !isThisHost(unc.server, input.thisHosts)) {
-    return [uncKey(unc.server, unc.share, unc.rest)]
+    const ids = new Set<string>([uncKey(unc.server, unc.share, unc.rest)])
+    addUncHostAliases(ids, unc.share, unc.rest, extras)
+    return [...ids]
   }
 
   const ids = new Set<string>()
-  if (unc) ids.add(uncKey(unc.server, unc.share, unc.rest))
+  if (unc) {
+    ids.add(uncKey(unc.server, unc.share, unc.rest))
+    addUncHostAliases(ids, unc.share, unc.rest, extras)
+  }
   if (input.fileIndex !== 0n && input.volumeSerial !== 0) {
     ids.add(`local:${input.shortHost}:${input.volumeSerial.toString(16)}:${input.fileIndex.toString()}`)
   }

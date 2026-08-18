@@ -1,5 +1,5 @@
-import { address, load, out, pointer, struct } from 'koffi'
-import { parseDosDeviceTarget, stripExtended } from '../shared/fileIdentityCore'
+import { address, inout, load, out, pointer, struct } from 'koffi'
+import { applyDosDeviceToDrivePath, parseDosDeviceTarget, stripExtended } from '../shared/fileIdentityCore'
 
 export { parseDosDeviceTarget, stripExtended }
 
@@ -47,6 +47,15 @@ const QueryDosDeviceW = kernel32.func(
 )
 const GetDriveTypeW = kernel32.func('uint32 __stdcall GetDriveTypeW(str16 lpRootPathName)')
 
+const UNIVERSAL_NAME_INFO_LEVEL = 1
+const mpr = load('mpr.dll')
+const WNetGetUniversalNameW = mpr.func('__stdcall', 'WNetGetUniversalNameW', 'uint32', [
+  'str16',
+  'uint32',
+  'uint8 *',
+  inout(pointer('uint32'))
+])
+
 export type HandleInfo = {
   finalPath: string
   remote: boolean
@@ -80,22 +89,38 @@ function queryDosDevice(letter: string): string {
   return n > 0 ? readUtf16(buf, n) : ''
 }
 
-function joinUnderRoot(root: string, rest: string): string {
-  const base = root.replace(/\\$/, '')
-  return rest ? `${base}\\${rest}` : base
+function wnetUniversalName(localPath: string): string {
+  try {
+    const buf = Buffer.alloc(4096)
+    const size = [buf.length]
+    const err = WNetGetUniversalNameW(localPath, UNIVERSAL_NAME_INFO_LEVEL, buf, size)
+    if (err !== 0) return ''
+    const text = buf.toString('utf16le')
+    const idx = text.indexOf('\\\\')
+    if (idx < 0) return ''
+    const end = text.indexOf('\0', idx)
+    const unc = text.slice(idx, end >= 0 ? end : undefined).trim()
+    return unc.startsWith('\\\\') ? unc : ''
+  } catch {
+    return ''
+  }
 }
 
 function expandDrivePath(winPath: string, depth = 0): string {
   if (depth > 6) return winPath
   const match = winPath.match(/^([A-Za-z]):\\(.*)$/)
   if (!match) return winPath
-  const parsed = parseDosDeviceTarget(queryDosDevice(match[1]))
+  if (GetDriveTypeW(`${match[1].toUpperCase()}:\\`) === DRIVE_REMOTE) {
+    const universal = wnetUniversalName(winPath)
+    if (universal) return stripExtended(universal.replace(/\//g, '\\'))
+  }
+  const parsed = applyDosDeviceToDrivePath(winPath, queryDosDevice(match[1]))
   if (!parsed) return winPath
-  if (parsed.kind === 'path') return expandDrivePath(joinUnderRoot(parsed.path, match[2]), depth + 1)
-  return joinUnderRoot(`\\\\${parsed.server}\\${parsed.share}`, match[2])
+  if (parsed !== winPath && /^[A-Za-z]:\\/.test(parsed)) return expandDrivePath(parsed, depth + 1)
+  return parsed
 }
 
-function isRemotePath(winPath: string): boolean {
+export function isRemotePath(winPath: string): boolean {
   if (winPath.startsWith('\\\\')) return true
   const match = winPath.match(/^([A-Za-z]):\\/)
   if (!match) return false
@@ -124,6 +149,10 @@ export function inspectFileHandle(filePath: string): HandleInfo | null {
     if (chars === 0) return null
     let finalPath = stripExtended(readUtf16(pathBuf, chars).replace(/\//g, '\\'))
     finalPath = expandDrivePath(finalPath)
+    if (/^[A-Za-z]:\\/.test(finalPath) && isRemotePath(finalPath)) {
+      const fromOpened = expandDrivePath(stripExtended(filePath.replace(/\//g, '\\')))
+      if (fromOpened.startsWith('\\\\')) finalPath = fromOpened
+    }
 
     const info = {
       dwFileAttributes: 0,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AwarenessPeerIndex, clientIdsForPeer, collectAwarenessClientIds } from './awarenessPeers'
+import { AwarenessPeerIndex, clientIdsForPeer, collectAwarenessClientIds, clientIdsToDropForPeer } from './awarenessPeers'
 
 describe('clientIdsForPeer', () => {
   it('離脱ピアの clientId だけ返す', () => {
@@ -43,5 +43,34 @@ describe('collectAwarenessClientIds', () => {
       [9, { user: {} }]
     ]
     expect(collectAwarenessClientIds(states, 'old-peer', new Set([1]), 1)).toEqual([9])
+  })
+
+  it('他ピアの clientId は送信元に付けない', () => {
+    const states: Array<[number, { user?: { peerId?: string } }]> = [
+      [1, { user: { peerId: 'local' } }],
+      [2, { user: { peerId: 'stay' } }],
+      [3, { user: { peerId: 'left' } }]
+    ]
+    expect(collectAwarenessClientIds(states, 'left', new Set([1]), 1)).toEqual([3])
+  })
+
+  it('peerId なしの新規が複数なら送り元に付けない', () => {
+    const states: Array<[number, { user?: { peerId?: string } }]> = [
+      [1, { user: { peerId: 'local' } }],
+      [8, { user: {} }],
+      [9, { user: {} }]
+    ]
+    expect(collectAwarenessClientIds(states, 'left', new Set([1]), 1)).toEqual([])
+  })
+})
+
+describe('clientIdsToDropForPeer', () => {
+  it('インデックスが汚染されていても user.peerId が違うキャレットは残す', () => {
+    const states = new Map([
+      [1, { user: { peerId: 'me' } }],
+      [2, { user: { peerId: 'stay' } }],
+      [3, { user: { peerId: 'left' } }]
+    ])
+    expect(clientIdsToDropForPeer(states, 'left', 1, [2, 3, 4])).toEqual([3])
   })
 })

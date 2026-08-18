@@ -6,6 +6,8 @@ import {
   messageKeys,
   offerKeys,
   electFileSaver as pickFileSaver,
+  fileSessionSyncKey,
+  shouldApplyCollabSnapshot,
   type FileOffer
 } from '../../../shared/fileSession'
 import { useAppStore, type TabInfo } from '../store'
@@ -19,6 +21,7 @@ const remoteManifests = new Map<string, { peerId: string; startedAt: number; fil
 const lastSavedText = new Map<string, string>()
 const dirtyRefreshGen = new Map<string, number>()
 const lastSyncKey = new Map<string, string>()
+const snapshotApplied = new Set<string>()
 let syncGen = 0
 let suppressDirty = 0
 
@@ -325,13 +328,22 @@ function sendBytes(type: string, docId: string, bytes: Uint8Array): void {
 export function sendFullState(docId: string): void {
   withDocs((docs) => {
     sendBytes('yjs-sync', docId, docs.encodeDoc(docId))
-    sendBytes('awareness', docId, docs.encodeAwarenessAll(docId))
+    sendBytes('awareness', docId, docs.encodeAwarenessLocal(docId))
+  })
+}
+
+function sendLocalAwarenessAll(): void {
+  withDocs((docs) => {
+    for (const tab of useAppStore.getState().tabs) {
+      sendBytes('awareness', tab.id, docs.encodeAwarenessLocal(tab.id))
+    }
   })
 }
 
 function bumpSyncGeneration(): void {
   syncGen += 1
   lastSyncKey.clear()
+  snapshotApplied.clear()
 }
 
 function mergePeerPresence(incoming: PeerInfo[]): PeerInfo[] {
@@ -473,14 +485,10 @@ function reconcileFileSessions(): void {
         local: localSaver,
         name: localSaver ? 'このPC' : peerDisplayName(originator.peerId)
       })
-      if (!localSaver && originatorDocId && originatorDocId !== tab.id) {
+      if (!localSaver && originatorDocId && originatorDocId !== tab.id && !snapshotApplied.has(tab.id)) {
         tab = adoptCanonical(docs, tab, originatorDocId)
       }
-      const remoteSig = remotes
-        .map((r) => `${r.peerId}:${r.docId}`)
-        .sort()
-        .join(',')
-      const syncKey = `${syncGen}|${keys.slice().sort().join('|')}|${tab.id}|${remoteSig}`
+      const syncKey = fileSessionSyncKey(syncGen, keys, tab.id)
       if (lastSyncKey.get(tab.id) !== syncKey) {
         lastSyncKey.set(tab.id, syncKey)
         exchangeDoc(tab, keys, localSaver)
@@ -508,21 +516,28 @@ export function handleCollabFrame(msg: Record<string, unknown>, binary: ArrayBuf
       void refreshDirtyState(docId)
     })
   } else if (type === 'yjs-sync' && docId) {
+    if (!shouldApplyCollabSnapshot(snapshotApplied, docId)) return
+    snapshotApplied.add(docId)
     withDocs((docs) => {
       withSuppressDirty(() => docs.stashSync(docId, toUint8(binary)))
       void refreshDirtyState(docId)
     })
   } else if (type === 'yjs-sync-request' && docId) {
-    sendFullState(docId)
+    if (isLocalFileSaver(docId)) sendFullState(docId)
   } else if (type === 'awareness' && docId) {
     const fromPeer = typeof msg.peerId === 'string' ? msg.peerId : undefined
     withDocs((docs) => {
       docs.applyAwarenessBytes(docId, toUint8(binary), fromPeer)
     })
-  } else if (type === 'peer-joined' || type === 'became-host' || type === 'became-guest') {
+  } else if (type === 'peer-joined') {
+    publishManifest()
+    sendPresence()
+    sendLocalAwarenessAll()
+  } else if (type === 'became-host' || type === 'became-guest') {
     bumpSyncGeneration()
     publishManifest()
     sendPresence()
+    sendLocalAwarenessAll()
   } else if (type === 'presence-request') {
     sendPresence()
   } else if (type === 'host-lost' || type === 'became-solo') {
@@ -560,6 +575,7 @@ export function handleCollabFrame(msg: Record<string, unknown>, binary: ArrayBuf
       })
     }
     reconcileFileSessions()
+    sendLocalAwarenessAll()
     for (const tab of useAppStore.getState().tabs) {
       if (tab.path) void refreshDirtyState(tab.id)
     }
