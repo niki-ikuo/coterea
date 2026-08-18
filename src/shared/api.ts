@@ -55,6 +55,10 @@ export interface CotereaApi {
   recent: {
     get: () => Promise<string[]>
   }
+  session: {
+    get: () => Promise<import('./session').EditorSession>
+    set: (session: import('./session').EditorSession) => Promise<import('./session').EditorSession>
+  }
   collab: {
     enable: (displayName: string) => Promise<{ localPeerId: string }>
     setDisplayName: (displayName: string) => Promise<void>

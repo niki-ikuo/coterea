@@ -1,6 +1,6 @@
 import { activateTabAt, closeTab, createUntitled, cycleTab, setMdScrollSync, setMdView } from '../lib/actions'
 import { isMarkdownLanguage } from '../lib/fileMeta'
-import { useAppStore, type MdView, type TabInfo } from '../store'
+import { isSettingsTab, useAppStore, type MdView, type TabInfo } from '../store'
 
 const MD_MODES: { id: MdView; label: string }[] = [
   { id: 'edit', label: '編集' },
@@ -43,8 +43,9 @@ const GLYPH: Record<string, { mark: string; color: string }> = {
   plaintext: { mark: 'Aa', color: '#8a8a8a' }
 }
 
-function glyphFor(language: string): { mark: string; color: string } {
-  return GLYPH[language] ?? { mark: '·', color: '#8a8a8a' }
+function glyphFor(tab: TabInfo): { mark: string; color: string } {
+  if (isSettingsTab(tab)) return { mark: '設', color: '#7c6f64' }
+  return GLYPH[tab.language] ?? { mark: '·', color: '#8a8a8a' }
 }
 
 export function TabBar(): React.JSX.Element | null {
@@ -60,7 +61,7 @@ export function TabBar(): React.JSX.Element | null {
       <div className="tabbar">
         <div className="tabbar-scroll" role="tablist">
           {tabs.map((tab) => {
-            const glyph = glyphFor(tab.language)
+            const glyph = glyphFor(tab)
             const selected = tab.id === activeTabId
             return (
               <div
@@ -149,22 +150,13 @@ export function TabBar(): React.JSX.Element | null {
             )
           })}
         </div>
-        <button
-          className="tab-add"
-          type="button"
-          title="新しいタブ"
-          aria-label="新しいタブ"
-          onClick={() => createUntitled()}
-        >
-          +
-        </button>
         <div
           className="tabbar-rest"
           onDoubleClick={() => createUntitled()}
           title="ダブルクリックで新しいタブ"
         />
       </div>
-      {active && isMarkdownLanguage(active.language) && <MarkdownToolbar tab={active} />}
+      {active && isMarkdownLanguage(active.language) && !isSettingsTab(active) && <MarkdownToolbar tab={active} />}
     </>
   )
 }

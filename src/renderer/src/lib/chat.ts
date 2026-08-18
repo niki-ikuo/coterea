@@ -10,7 +10,8 @@ import {
 import { markDirty } from './collab'
 import { preloadEditor } from './editorReady'
 import { getActiveEditor } from './editorHandle'
-import { useAppStore } from '../store'
+import { openSettingsTab } from './actions'
+import { isSettingsTab, useAppStore } from '../store'
 import type { AiStreamEvent, AiToolRequest } from '../../../shared/api'
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null
@@ -112,7 +113,7 @@ async function buildContext(): Promise<{ content: string; selection: { from: num
   const tab = tabs.find((t) => t.id === activeTabId)
   const { getText } = await preloadEditor()
   const selection = selectionOfActive()
-  if (!tab) return { content: '[開いているファイルはありません]', selection: null }
+  if (!tab || isSettingsTab(tab)) return { content: '[開いているファイルはありません]', selection: null }
   const body = getText(tab.id)
   let content = `[現在のファイル: ${tab.title}]\nid: ${tab.id}\nlanguage: ${tab.language}\n\n${body}`
   if (selection) content += `\n\n[選択範囲]\n${selection.text}`
@@ -127,7 +128,7 @@ export async function sendChat(): Promise<void> {
   if (useAppStore.getState().chatBusy) return
   const configured = useAppStore.getState().aiConfigured
   if (!configured) {
-    void window.coterea.app.showSettings()
+    void openSettingsTab('ai')
     return
   }
 
@@ -269,14 +270,14 @@ function handleTool(payload: { requestId: string } & AiToolRequest): void {
         requestId: payload.requestId,
         callId: payload.callId,
         result: JSON.stringify(
-          tabs.map((t) => ({ id: t.id, name: t.title, language: t.language }))
+          tabs.filter((t) => !isSettingsTab(t)).map((t) => ({ id: t.id, name: t.title, language: t.language }))
         )
       })
       return
     }
     if (payload.name === 'read_tab' || payload.name === 'snapshot_tab') {
       const tab = tabs.find((t) => t.id === payload.tabId)
-      if (!tab) {
+      if (!tab || isSettingsTab(tab)) {
         window.coterea.ai.toolResult({
           requestId: payload.requestId,
           callId: payload.callId,

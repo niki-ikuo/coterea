@@ -23,6 +23,8 @@ export interface AiProviderPreset {
   baseUrl: string
   models: string[]
   needsKey: boolean
+  /** 接続検証前。カスタム Base URL 以外はβ。 */
+  beta?: boolean
 }
 
 export const AI_PROVIDERS: AiProviderPreset[] = [
@@ -31,42 +33,48 @@ export const AI_PROVIDERS: AiProviderPreset[] = [
     label: 'OpenAI',
     baseUrl: 'https://api.openai.com/v1',
     models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
-    needsKey: true
+    needsKey: true,
+    beta: true
   },
   {
     id: 'gemini',
     label: 'Gemini (OpenAI 互換)',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
     models: ['gemini-2.0-flash', 'gemini-2.5-flash'],
-    needsKey: true
+    needsKey: true,
+    beta: true
   },
   {
     id: 'deepseek',
     label: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com',
     models: ['deepseek-chat', 'deepseek-reasoner'],
-    needsKey: true
+    needsKey: true,
+    beta: true
   },
   {
     id: 'groq',
     label: 'Groq',
     baseUrl: 'https://api.groq.com/openai/v1',
     models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
-    needsKey: true
+    needsKey: true,
+    beta: true
   },
   {
     id: 'openrouter',
     label: 'OpenRouter',
     baseUrl: 'https://openrouter.ai/api/v1',
     models: ['openai/gpt-4o-mini', 'google/gemini-2.0-flash-001'],
-    needsKey: true
+    needsKey: true,
+    beta: true
   },
   {
     id: 'ollama',
     label: 'Ollama（ローカル）',
     baseUrl: 'http://127.0.0.1:11434/v1',
     models: ['llama3.2', 'qwen2.5'],
-    needsKey: false
+    needsKey: false,
+    beta: true
   },
   {
     id: 'custom',

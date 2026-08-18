@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { setCollabPaneVisible } from '../lib/actions'
+import { setCollabPaneVisible, openSettingsTab } from '../lib/actions'
 import {
   applyAllPending,
   applyProposal,
@@ -14,7 +14,6 @@ import {
   stopChat
 } from '../lib/chat'
 import { useAppStore } from '../store'
-import { CollabFold } from './CollabFold'
 import { diffLines, previewTexts } from '../../../shared/lineDiff'
 import type { ChatMessage, ChatMode, ProposedEdit } from '../../../shared/ai'
 
@@ -28,31 +27,14 @@ export function RightPane(): React.JSX.Element {
   const chat = useAppStore((s) => s.chat)
   const busy = useAppStore((s) => s.chatBusy)
   const configured = useAppStore((s) => s.aiConfigured)
-  const collab = useAppStore((s) => s.collab)
-  const [collabOpen, setCollabOpen] = useState(false)
   const [renaming, setRenaming] = useState<string | null>(null)
   const thread = chat.threads.find((t) => t.id === chat.activeId) ?? chat.threads[0]
-  const connected = collab.status === 'hosting' || collab.status === 'joined'
-  const people = connected ? Math.max(collab.peers.length, 1) : 1
   const pending = thread?.messages.filter((m) => m.proposal && m.proposalStatus === 'pending') ?? []
 
   return (
     <aside className="right-pane chat-pane">
       <header className="pane-header chat-header">
-        <div className="chat-header-main">
-          <div className="pane-kicker">会話</div>
-          <div className="chat-header-row">
-            <span className="chat-collab-summary">{headerLabel(collab, people)}</span>
-            <button
-              type="button"
-              className={`collab-toggle${collabOpen ? ' open' : ''}`}
-              aria-expanded={collabOpen}
-              onClick={() => setCollabOpen((v) => !v)}
-            >
-              共同編集{collabOpen ? '▴' : '▾'}
-            </button>
-          </div>
-        </div>
+        <div className="pane-kicker">会話</div>
         <button type="button" className="pane-hide" onClick={() => void setCollabPaneVisible(false)}>
           非表示
         </button>
@@ -118,9 +100,9 @@ export function RightPane(): React.JSX.Element {
         </div>
       )}
 
-      {collabOpen ? <CollabFold /> : <ChatLog messages={thread?.messages ?? []} />}
+      <ChatLog messages={thread?.messages ?? []} />
 
-      {!collabOpen && pending.length > 1 && (
+      {pending.length > 1 && (
         <div className="chat-batch">
           <button type="button" className="primary" onClick={() => void applyAllPending(false)}>
             一括適用（{pending.length}）
@@ -128,7 +110,7 @@ export function RightPane(): React.JSX.Element {
         </div>
       )}
 
-      {!collabOpen && thread && (
+      {thread && (
         <div className="chat-composer">
           <div className="md-seg chat-modes" role="group" aria-label="モード">
             {MODES.map((mode) => (
@@ -146,7 +128,7 @@ export function RightPane(): React.JSX.Element {
           {!configured && (
             <p className="muted small">
               API が未設定です。
-              <button type="button" className="linkish" onClick={() => void window.coterea.app.showSettings()}>
+              <button type="button" className="linkish" onClick={() => openSettingsTab('ai')}>
                 設定を開く
               </button>
             </p>
@@ -270,9 +252,3 @@ function ProposalCard({ msg, proposal }: { msg: ChatMessage; proposal: ProposedE
   )
 }
 
-function headerLabel(collab: { status: string }, people: number): string {
-  if (collab.status === 'hosting') return `${people}人 · ハブ`
-  if (collab.status === 'joined') return `${people}人 · 参加中`
-  if (collab.status === 'connecting') return '接続中'
-  return '1人'
-}

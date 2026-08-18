@@ -18,7 +18,6 @@ import { isUnsupportedOpen } from '../shared/openPolicy'
 import { attachZoomShortcuts } from './zoom'
 import { attachAppShortcuts } from './shortcuts'
 import { getAboutInfo } from './about'
-import { showSettingsWindow } from './settingsWindow'
 import { SecretStore } from './secrets'
 import { ChatHistoryStore } from './chatStore'
 import { abortAi, aiStatusFrom, resolveToolResult, startAiChat } from './ai/run'
@@ -250,11 +249,8 @@ function registerIpc(): void {
     if (!/^https?:\/\//i.test(url)) return
     await shell.openExternal(url)
   })
-  ipcMain.handle('app:showSettings', (event) => {
-    const from = BrowserWindow.fromWebContents(event.sender)
-    const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : from
-    if (!parent) return
-    showSettingsWindow(parent, parseTheme(store.getSettings().theme))
+  ipcMain.handle('app:showSettings', () => {
+    sendMenu('settings')
   })
   ipcMain.handle('app:getAboutInfo', () => getAboutInfo())
   ipcMain.handle('app:showCollabNotice', async () => {
@@ -288,6 +284,13 @@ function registerIpc(): void {
   ipcMain.handle('recent:get', async () => {
     await store.load()
     return store.getRecent()
+  })
+  ipcMain.handle('session:get', async () => {
+    await store.load()
+    return store.getSession()
+  })
+  ipcMain.handle('session:set', async (_e, raw: unknown) => {
+    return store.setSession(raw)
   })
   ipcMain.handle('ai:status', async () => {
     await store.load()

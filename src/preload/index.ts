@@ -59,6 +59,11 @@ const api = {
   recent: {
     get: (): Promise<string[]> => ipcRenderer.invoke('recent:get')
   },
+  session: {
+    get: (): Promise<import('../shared/session').EditorSession> => ipcRenderer.invoke('session:get'),
+    set: (session: import('../shared/session').EditorSession): Promise<import('../shared/session').EditorSession> =>
+      ipcRenderer.invoke('session:set', session)
+  },
   collab: {
     enable: (displayName: string) => ipcRenderer.invoke('collab:enable', displayName),
     setDisplayName: (displayName: string) => ipcRenderer.invoke('collab:setDisplayName', displayName),

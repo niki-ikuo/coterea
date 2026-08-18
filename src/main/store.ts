@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { userInfo } from 'os'
 import type { AppSettings } from '../shared/types'
+import { parseEditorSession, type EditorSession } from '../shared/session'
 import { DEFAULT_THEME, parseTheme } from '../shared/theme'
 import {
   AI_DEFAULT_MAX_STEPS,
@@ -21,6 +22,7 @@ const MAX_RECENT = 12
 type Store = {
   settings: AppSettings
   recentFiles: string[]
+  session: EditorSession
 }
 
 function defaultStore(): Store {
@@ -37,7 +39,8 @@ function defaultStore(): Store {
         maxTokens: AI_DEFAULT_MAX_TOKENS,
         maxAgentSteps: AI_DEFAULT_MAX_STEPS
       },
-    recentFiles: []
+    recentFiles: [],
+    session: { tabs: [], active: 0 }
   }
 }
 
@@ -55,6 +58,10 @@ export class AppStore {
 
   private recentPath(): string {
     return join(this.dir(), 'recent-files.json')
+  }
+
+  private sessionPath(): string {
+    return join(this.dir(), 'session.json')
   }
 
   async load(): Promise<void> {
@@ -81,6 +88,11 @@ export class AppStore {
     try {
       const recent = JSON.parse(await readFile(this.recentPath(), 'utf8')) as string[]
       this.data.recentFiles = Array.isArray(recent) ? recent : []
+    } catch {
+      /* first run */
+    }
+    try {
+      this.data.session = parseEditorSession(JSON.parse(await readFile(this.sessionPath(), 'utf8')))
     } catch {
       /* first run */
     }
@@ -112,6 +124,20 @@ export class AppStore {
     }
     await writeFile(this.settingsPath(), JSON.stringify(this.data.settings, null, 2), 'utf8')
     return this.getSettings()
+  }
+
+  getSession(): EditorSession {
+    return {
+      tabs: [...this.data.session.tabs],
+      active: this.data.session.active
+    }
+  }
+
+  async setSession(raw: unknown): Promise<EditorSession> {
+    await this.load()
+    this.data.session = parseEditorSession(raw)
+    await writeFile(this.sessionPath(), JSON.stringify(this.data.session, null, 2), 'utf8')
+    return this.getSession()
   }
 
   getRecent(): string[] {

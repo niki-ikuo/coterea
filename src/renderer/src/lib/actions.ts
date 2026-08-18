@@ -1,12 +1,15 @@
 import { languageFromPath, titleFromPath, isMarkdownLanguage } from './fileMeta'
 import { announceNewDoc, flushPendingSaves, forgetSavedText, isCollabActive, isTabSaving, persistTab, publishManifest, rememberSavedText, savedTextOf, withSuppressDirty } from './collab'
 import { preloadEditor } from './editorReady'
-import { useAppStore, type MdView, type TabInfo } from '../store'
+import { isSettingsTab, useAppStore, type MdView, type TabInfo } from '../store'
 import { DEFAULT_ENCODING, type EncodingId } from '../../../shared/encoding'
 import { idsOverlap } from '../../../shared/fileSession'
 import { shouldPromptExternalChange, normalizeText } from '../../../shared/externalChange'
 import { REMOTE_SAVE_MS } from '../../../shared/types'
 import { isUnsupportedOpen, type UnsupportedOpen } from '../../../shared/openPolicy'
+import { SETTINGS_TAB_ID } from '../../../shared/session'
+import { persistSessionNow } from './workspaceSession'
+import { requestSettingsSection, revertOpenSettings, saveOpenSettings, type SettingsSection } from './settingsTab'
 
 function newId(): string {
   return crypto.randomUUID()
@@ -22,14 +25,49 @@ function collabUser(): { name: string; color: string; peerId?: string } {
   return { name: displayName, color: collab.localColor, peerId: collab.localPeerId ?? undefined }
 }
 
-export async function createUntitled(): Promise<TabInfo> {
+export async function createUntitled(
+  content = '',
+  opts?: { activate?: boolean; encoding?: EncodingId }
+): Promise<TabInfo> {
   const { createTabDoc } = await preloadEditor()
   const id = newId()
+  const encoding = opts?.encoding ?? DEFAULT_ENCODING
   const tab: TabInfo = {
     id,
+    kind: 'file',
     path: null,
     hostPath: null,
     title: '無題',
+    language: 'plaintext',
+    isDirty: content.length > 0,
+    encoding,
+    fileIds: [],
+    mdView: 'edit',
+    mdSplitPct: 50,
+    mdScrollSync: true,
+    saveError: null
+  }
+  createTabDoc(id, content, 'plaintext', collabUser())
+  rememberSavedText(id, '')
+  useAppStore.getState().setTabs((tabs) => [...tabs, tab])
+  if (opts?.activate !== false) useAppStore.getState().setActiveTabId(id)
+  announceNewDoc(tab)
+  return tab
+}
+
+export function openSettingsTab(section?: SettingsSection): void {
+  if (section) requestSettingsSection(section)
+  const existing = useAppStore.getState().tabs.find(isSettingsTab)
+  if (existing) {
+    useAppStore.getState().setActiveTabId(existing.id)
+    return
+  }
+  const tab: TabInfo = {
+    id: SETTINGS_TAB_ID,
+    kind: 'settings',
+    path: null,
+    hostPath: null,
+    title: '設定',
     language: 'plaintext',
     isDirty: false,
     encoding: DEFAULT_ENCODING,
@@ -39,12 +77,8 @@ export async function createUntitled(): Promise<TabInfo> {
     mdScrollSync: true,
     saveError: null
   }
-  createTabDoc(id, '', 'plaintext', collabUser())
-  rememberSavedText(id, '')
   useAppStore.getState().setTabs((tabs) => [...tabs, tab])
-  useAppStore.getState().setActiveTabId(id)
-  announceNewDoc(tab)
-  return tab
+  useAppStore.getState().setActiveTabId(tab.id)
 }
 
 function watchPath(filePath: string | null): void {
@@ -164,7 +198,7 @@ export async function openPathsFromShell(paths: string[]): Promise<void> {
   await openPaths(paths)
   const opened = useAppStore.getState().tabs.some((t) => t.path)
   if (!opened) return
-  const blanks = useAppStore.getState().tabs.filter((t) => !t.path && !t.isDirty)
+  const blanks = useAppStore.getState().tabs.filter((t) => t.kind === 'file' && !t.path && !t.isDirty)
   for (const blank of blanks) {
     if (useAppStore.getState().tabs.length <= 1) break
     await closeTab(blank.id)
@@ -174,7 +208,12 @@ export async function openPathsFromShell(paths: string[]): Promise<void> {
 export async function openPaths(paths: string[]): Promise<void> {
   const skipped: UnsupportedOpen[] = []
   for (const filePath of paths) {
-    const read = await window.coterea.fs.read(filePath)
+    let read: Awaited<ReturnType<typeof window.coterea.fs.read>>
+    try {
+      read = await window.coterea.fs.read(filePath)
+    } catch {
+      continue
+    }
     if (isUnsupportedOpen(read)) {
       skipped.push(read)
       continue
@@ -183,9 +222,8 @@ export async function openPaths(paths: string[]): Promise<void> {
     const current = useAppStore.getState()
     const existing = current.tabs.find(
       (t) =>
-        t.path === filePath ||
-        t.path === read.path ||
-        idsOverlap(t.fileIds, read.fileIds)
+        !isSettingsTab(t) &&
+        (t.path === filePath || t.path === read.path || idsOverlap(t.fileIds, read.fileIds))
     )
     if (existing) {
       useAppStore.getState().setActiveTabId(existing.id)
@@ -198,6 +236,7 @@ export async function openPaths(paths: string[]): Promise<void> {
     rememberSavedText(id, read.content)
     const tab: TabInfo = {
       id,
+      kind: 'file',
       path: filePath,
       hostPath: filePath,
       title: titleFromPath(filePath),
@@ -226,6 +265,7 @@ export async function openDialog(): Promise<void> {
 export async function saveTab(tabId: string, saveAs = false): Promise<boolean> {
   const tab = useAppStore.getState().tabs.find((t) => t.id === tabId)
   if (!tab) return false
+  if (isSettingsTab(tab)) return saveOpenSettings()
   if (tab.path && !saveAs) {
     return persistTab(tabId)
   }
@@ -285,12 +325,16 @@ export async function closeTab(tabId: string): Promise<void> {
     if (decision === 'save') {
       const ok = await saveTab(tabId)
       if (!ok) return
+    } else if (isSettingsTab(tab)) {
+      await revertOpenSettings()
     }
   }
-  unwatchIfUnused(tab.path, tabId)
-  const { disposeTabDoc } = await preloadEditor()
-  disposeTabDoc(tabId)
-  forgetSavedText(tabId)
+  if (!isSettingsTab(tab)) {
+    unwatchIfUnused(tab.path, tabId)
+    const { disposeTabDoc } = await preloadEditor()
+    disposeTabDoc(tabId)
+    forgetSavedText(tabId)
+  }
   const { tabs, activeTabId } = useAppStore.getState()
   const next = tabs.filter((t) => t.id !== tabId)
   useAppStore.getState().setTabs(next)
@@ -311,7 +355,13 @@ export async function handleAppClose(): Promise<void> {
         const ok = await saveTab(tab.id)
         if (!ok) return
       }
+      await persistSessionNow()
+    } else {
+      if (dirty.some(isSettingsTab)) await revertOpenSettings()
+      await persistSessionNow({ dropDirtyUntitled: true })
     }
+  } else {
+    await persistSessionNow()
   }
   await window.coterea.app.confirmClose()
 }

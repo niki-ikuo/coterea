@@ -4,13 +4,15 @@ import { StatusBar } from './components/StatusBar'
 import { TabBar } from './components/TabBar'
 import { TitleBar } from './components/TitleBar'
 import { attachCollabListeners, enableCollab } from './lib/collab'
-import { closeTab, createUntitled, cycleMdView, cycleTab, handleAppClose, openDialog, openPaths, openPathsFromShell, saveActive, setMdView, toggleCollabPane, attachFileWatch } from './lib/actions'
+import { closeTab, createUntitled, cycleMdView, cycleTab, handleAppClose, openDialog, openPaths, openPathsFromShell, openSettingsTab, saveActive, setMdView, toggleCollabPane, attachFileWatch } from './lib/actions'
 import { attachAiListeners, loadChat } from './lib/chat'
 import { preloadEditor, applyLoadedMonacoTheme } from './lib/editorReady'
 import { applyUiTheme } from './lib/uiTheme'
 import { getActiveEditor } from './lib/editorHandle'
-import { useAppStore } from './store'
+import { isSettingsTab, useAppStore } from './store'
 import { parseTheme } from '../../shared/theme'
+import { attachSessionPersist, enableSessionPersist, restoreSession } from './lib/workspaceSession'
+import { SettingsPane } from './components/SettingsPane'
 
 const EditorPane = lazy(() => import('./components/EditorPane').then((m) => ({ default: m.EditorPane })))
 
@@ -34,8 +36,10 @@ function bootApp(): Promise<void> {
           paneP
         ])
         await applyLoadedMonacoTheme(theme)
+        await restoreSession()
         if (launchFiles.length > 0) await openPathsFromShell(launchFiles)
         if (useAppStore.getState().tabs.length === 0) await createUntitled()
+        enableSessionPersist()
         await loadChat()
         void import('./lib/monacoEnv').then((m) => m.preloadMonacoLanguages())
         void enableCollab()
@@ -60,6 +64,7 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     void bootApp().then(() => setBooted(true))
+    const offSession = attachSessionPersist()
     const offCollab = attachCollabListeners()
     const offAi = attachAiListeners()
     const offWatch = attachFileWatch()
@@ -107,6 +112,7 @@ export function App(): React.JSX.Element {
         getActiveEditor()?.trigger('menu', 'editor.action.startFindReplaceAction', null)
       }
       if (action === 'toggle-right') void toggleCollabPane()
+      if (action === 'settings') openSettingsTab()
       if (action === 'theme' && extra) {
         const theme = parseTheme(extra)
         void window.coterea.settings.set({ theme }).then((next) => {
@@ -129,6 +135,7 @@ export function App(): React.JSX.Element {
       void handleAppClose()
     })
     return () => {
+      offSession()
       offCollab()
       offAi()
       offWatch()
@@ -163,7 +170,10 @@ export function App(): React.JSX.Element {
     }
   }, [])
 
-  const showEditor = Boolean(activeTabId && tabs.some((t) => t.id === activeTabId))
+  const activeTab = tabs.find((t) => t.id === activeTabId)
+  const hasSettingsTab = tabs.some(isSettingsTab)
+  const settingsOpen = Boolean(activeTab && isSettingsTab(activeTab))
+  const showEditor = Boolean(activeTabId && activeTab && !settingsOpen)
 
   return (
     <div className="app">
@@ -172,6 +182,11 @@ export function App(): React.JSX.Element {
         <div className="left-pane" style={{ width: collabPaneVisible ? `${100 - rightWidth}%` : '100%' }}>
           <TabBar />
           <div className="editor-wrap">
+            {hasSettingsTab && (
+              <div className="settings-host" hidden={!settingsOpen}>
+                <SettingsPane />
+              </div>
+            )}
             {showEditor && activeTabId ? (
               <Suspense fallback={<div className="editor-stage"><div className="editor-host" /></div>}>
                 <EditorPane tabId={activeTabId} />

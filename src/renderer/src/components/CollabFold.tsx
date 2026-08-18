@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../store'
+import { openSettingsTab } from '../lib/actions'
 import { joinManual, leaveManualSession, startManualHost } from '../lib/collab'
 import { COLLAB_LAN_NOTICE_SHORT } from '../../../shared/collabNotice'
 
@@ -46,7 +47,7 @@ export function CollabFold(): React.JSX.Element {
     <div className="collab-fold">
       <section className="pane-card">
         <div className="label">自分の表示名</div>
-        <button className="name-btn" type="button" onClick={() => void window.coterea.app.showSettings()}>
+        <button className="name-btn" type="button" onClick={() => openSettingsTab('general')}>
           <span className="swatch" style={{ background: collab.localColor }} />
           {displayName || '未設定'}
         </button>

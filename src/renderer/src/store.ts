@@ -6,8 +6,11 @@ import { defaultChatHistory, type ChatHistoryFile } from '../../shared/ai'
 
 export type MdView = 'edit' | 'split' | 'preview'
 
+export type TabKind = 'file' | 'settings'
+
 export type TabInfo = {
   id: string
+  kind: TabKind
   path: string | null
   hostPath: string | null
   title: string
@@ -19,6 +22,10 @@ export type TabInfo = {
   mdSplitPct: number
   mdScrollSync: boolean
   saveError: string | null
+}
+
+export function isSettingsTab(tab: Pick<TabInfo, 'kind'>): boolean {
+  return tab.kind === 'settings'
 }
 
 export type CollabState = {

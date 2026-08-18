@@ -2,7 +2,6 @@ import { Menu, type BrowserWindow } from 'electron'
 import { THEMES, type ThemeId } from '../shared/theme'
 import { zoomIn, zoomOut, zoomReset } from './zoom'
 import { showAboutWindow } from './about'
-import { showSettingsWindow } from './settingsWindow'
 
 export function buildMenu(
   win: BrowserWindow,
@@ -32,7 +31,7 @@ export function buildMenu(
         { type: 'separator' },
         { label: 'タブを閉じる', accelerator: 'CmdOrCtrl+W', click: () => send('close-tab') },
         { type: 'separator' },
-        { label: '設定...', click: () => showSettingsWindow(win, theme) },
+        { label: '設定...', click: () => send('settings') },
         { type: 'separator' },
         { label: '終了', accelerator: 'Alt+F4', click: () => win.close() }
       ]
