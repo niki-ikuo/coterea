@@ -5,6 +5,7 @@ import {
   classifyApplyCollision,
   completionsUrl,
   parseProposeEditArgs,
+  parseToolArgsJson,
   sanitizeChatHistory,
   titleFromPrompt
 } from './ai'
@@ -63,6 +64,13 @@ describe('propose_edit', () => {
     expect('error' in parsed).toBe(false)
     if ('error' in parsed) return
     expect(parsed.tabId).toBe('active')
+  })
+})
+
+describe('parseToolArgsJson', () => {
+  it('Windows パスの生バックスラッシュを拾う', () => {
+    const parsed = parseToolArgsJson('{"tab_id":"C:\\Users\\a.md","mode":"replace_all","text":"x"}')
+    expect(parsed).toEqual({ tab_id: 'C:\\Users\\a.md', mode: 'replace_all', text: 'x' })
   })
 })
 

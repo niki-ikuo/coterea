@@ -297,6 +297,21 @@ export interface ProposeEditArgs {
   note?: string
 }
 
+/** LLM の tool 引数。Windows パスの生バックスラッシュなど、不正な JSON エスケープを拾う。 */
+export function parseToolArgsJson(raw: string): unknown | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  try {
+    return JSON.parse(trimmed) as unknown
+  } catch {
+    try {
+      return JSON.parse(trimmed.replace(/\\(?!["\\/bfnrtu])/g, '\\\\')) as unknown
+    } catch {
+      return null
+    }
+  }
+}
+
 export function parseProposeEditArgs(raw: unknown, fallbackTabId: string): ProposeEditArgs | { error: string } {
   if (!raw || typeof raw !== 'object') return { error: 'propose_edit の引数が不正です' }
   const data = raw as Record<string, unknown>

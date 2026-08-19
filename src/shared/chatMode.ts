@@ -20,6 +20,43 @@ export type SelectionContext = {
 
 export type ChatToolName = 'list_open_tabs' | 'read_tab' | 'propose_edit'
 
+export type ChatTabRef = {
+  id: string
+  title: string
+  path?: string | null
+}
+
+/** Edit はいまのファイル固定。Agent は指定タブ、なければアクティブ。 */
+export function resolveProposeTabId(input: {
+  mode: ChatMode
+  requested: string
+  activeTabId: string | null
+}): string | null {
+  if (input.mode === 'edit') return input.activeTabId
+  return input.requested || input.activeTabId
+}
+
+/** 開いているタブを id / パス / 一意のタイトルで探す。 */
+export function resolveOpenTabId(input: {
+  requested?: string
+  tabs: ChatTabRef[]
+  activeTabId: string | null
+  fallbackToActive: boolean
+}): string | undefined {
+  const requested = input.requested?.trim()
+  if (requested) {
+    const exact = input.tabs.find((t) => t.id === requested)
+    if (exact) return exact.id
+    const byPath = input.tabs.find((t) => t.path === requested)
+    if (byPath) return byPath.id
+    const titled = input.tabs.filter((t) => t.title === requested)
+    if (titled.length === 1) return titled[0].id
+    if (!input.fallbackToActive) return undefined
+  }
+  if (input.activeTabId && input.tabs.some((t) => t.id === input.activeTabId)) return input.activeTabId
+  return undefined
+}
+
 export type ChatModeUi = {
   id: ChatMode
   label: string
@@ -87,6 +124,7 @@ export function systemPromptFor(mode: ChatMode): string {
     return [
       'あなたは Coterea の編集アシスタントです。',
       'propose_edit をちょうど1回呼び、1つの変更案だけ出します。',
+      'tab_id は省略してください。対象はいまのファイルです。',
       'list_open_tabs や read_tab は使いません。ファイル本文はユーザーメッセージにあります。',
       '自分でファイルへ書き込んではいけません。適用はユーザーが行います。',
       '選択範囲が示されていれば replace_range を優先し、なければ replace_all を使います。',
@@ -123,7 +161,7 @@ export function formatCurrentUserMessage(input: {
 
 function formatAskEditFile(file: ActiveFileContext | null): string {
   if (!file) return '[開いているファイルはありません]'
-  return `[現在のファイル: ${file.title}]\nid: ${file.id}\nlanguage: ${file.language}\n\n${file.body}`
+  return `[現在のファイル: ${file.title}]\nlanguage: ${file.language}\n\n${file.body}`
 }
 
 function formatAgentWorkspace(file: ActiveFileContext | null): string {

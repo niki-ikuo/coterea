@@ -242,6 +242,7 @@ function llmMessages(ctx: ChatRun): LlmMessage[] {
 function toolRuntime(wc: WebContents, ctx: ChatRun): ToolRuntime {
   return {
     requestId: ctx.requestId,
+    mode: ctx.mode,
     activeTabId: ctx.activeTabId,
     emit: (event) => emit(wc, ctx.requestId, event),
     askRenderer: (req) => askTool(wc, ctx.requestId, req)

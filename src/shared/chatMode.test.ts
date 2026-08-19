@@ -6,6 +6,8 @@ import {
   formatCurrentUserMessage,
   includesActiveFileBody,
   maxStepsForMode,
+  resolveOpenTabId,
+  resolveProposeTabId,
   systemPromptFor,
   toolsForMode
 } from './chatMode'
@@ -105,8 +107,38 @@ describe('buildChatMessages', () => {
 describe('systemPromptFor', () => {
   it('Ask は編集ツールに触れない', () => {
     expect(systemPromptFor('ask')).not.toContain('propose_edit')
-    expect(systemPromptFor('edit')).toContain('propose_edit をちょうど1回')
+    expect(systemPromptFor('edit')).toContain('tab_id は省略')
     expect(systemPromptFor('agent')).toContain('read_tab')
+  })
+})
+
+describe('tab resolve', () => {
+  it('Edit は LLM の tab_id を捨ててアクティブを使う', () => {
+    expect(resolveProposeTabId({ mode: 'edit', requested: 'wrong', activeTabId: 'tab-1' })).toBe('tab-1')
+    expect(resolveProposeTabId({ mode: 'edit', requested: 'wrong', activeTabId: null })).toBe(null)
+  })
+
+  it('Agent は指定タブを優先する', () => {
+    expect(resolveProposeTabId({ mode: 'agent', requested: 'other', activeTabId: 'tab-1' })).toBe('other')
+  })
+
+  it('タイトルやパスでも開いているタブを見つける', () => {
+    const tabs = [
+      { id: 'uuid-1', title: 'notes.md', path: 'C:\\work\\notes.md' },
+      { id: 'uuid-2', title: 'other.md', path: 'C:\\work\\other.md' }
+    ]
+    expect(resolveOpenTabId({ requested: 'notes.md', tabs, activeTabId: 'uuid-2', fallbackToActive: false })).toBe(
+      'uuid-1'
+    )
+    expect(
+      resolveOpenTabId({ requested: 'C:\\work\\other.md', tabs, activeTabId: 'uuid-1', fallbackToActive: false })
+    ).toBe('uuid-2')
+    expect(resolveOpenTabId({ requested: 'missing', tabs, activeTabId: 'uuid-1', fallbackToActive: true })).toBe(
+      'uuid-1'
+    )
+    expect(resolveOpenTabId({ requested: 'missing', tabs, activeTabId: 'uuid-1', fallbackToActive: false })).toBe(
+      undefined
+    )
   })
 })
 

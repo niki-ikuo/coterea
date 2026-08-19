@@ -10,7 +10,12 @@ import {
   type ChatMode,
   type ChatThread
 } from '../../../shared/ai'
-import { buildChatMessages, type ActiveFileContext, type SelectionContext } from '../../../shared/chatMode'
+import {
+  buildChatMessages,
+  resolveOpenTabId,
+  type ActiveFileContext,
+  type SelectionContext
+} from '../../../shared/chatMode'
 import { markDirty } from './collab'
 import { preloadEditor } from './editorReady'
 import { getActiveEditor } from './editorHandle'
@@ -231,7 +236,7 @@ export async function sendChat(): Promise<void> {
   const result = await window.coterea.ai.start({
     requestId,
     mode: live.mode,
-    activeTabId: useAppStore.getState().activeTabId,
+    activeTabId: activeFile?.id ?? null,
     messages: buildChatMessages({
       mode: live.mode,
       messages: live.messages.filter((m) => m.id !== assistantId),
@@ -337,26 +342,33 @@ function handleEvent(requestId: string, event: AiStreamEvent): void {
 }
 
 function handleTool(payload: { requestId: string } & AiToolRequest): void {
-  const { tabs } = useAppStore.getState()
+  const { tabs, activeTabId } = useAppStore.getState()
+  const files = tabs.filter((t) => !isVirtualTab(t))
   void (async () => {
     const { getText } = await preloadEditor()
     if (payload.name === 'list_open_tabs') {
       window.coterea.ai.toolResult({
         requestId: payload.requestId,
         callId: payload.callId,
-        result: JSON.stringify(
-          tabs.filter((t) => !isVirtualTab(t)).map((t) => ({ id: t.id, name: t.title, language: t.language }))
-        )
+        result: JSON.stringify(files.map((t) => ({ id: t.id, name: t.title, language: t.language })))
       })
       return
     }
     if (payload.name === 'read_tab' || payload.name === 'snapshot_tab') {
-      const tab = tabs.find((t) => t.id === payload.tabId)
-      if (!tab || isVirtualTab(tab)) {
+      const tabId = resolveOpenTabId({
+        requested: payload.tabId,
+        tabs: files.map((t) => ({ id: t.id, title: t.title, path: t.path })),
+        activeTabId,
+        fallbackToActive: false
+      })
+      const tab = files.find((t) => t.id === tabId)
+      if (!tab) {
         window.coterea.ai.toolResult({
           requestId: payload.requestId,
           callId: payload.callId,
-          result: JSON.stringify({ error: 'そのタブは開いていません' })
+          result: JSON.stringify({
+            error: files.length === 0 ? '開いているファイルがありません' : 'そのタブは開いていません'
+          })
         })
         return
       }
@@ -389,9 +401,8 @@ export async function applyProposal(messageId: string, force = false): Promise<v
   const proposal = msg?.proposal
   if (!proposal || !thread) return
   const { getText, applyLocalEdit } = await preloadEditor()
-  const current = getText(proposal.tabId)
-  const collision = classifyApplyCollision({ current: current || null, proposal })
-  if (collision === 'missing') {
+  const tab = useAppStore.getState().tabs.find((t) => t.id === proposal.tabId)
+  if (!tab || isVirtualTab(tab)) {
     patchActiveThread((t) => ({
       ...t,
       messages: t.messages.map((m) =>
@@ -400,6 +411,8 @@ export async function applyProposal(messageId: string, force = false): Promise<v
     }))
     return
   }
+  const current = getText(proposal.tabId)
+  const collision = classifyApplyCollision({ current, proposal })
   if (collision !== 'ok' && !force) {
     patchActiveThread((t) => ({
       ...t,

@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
-import { parseProposeEditArgs } from '../../shared/ai'
+import { parseProposeEditArgs, parseToolArgsJson, type ChatMode } from '../../shared/ai'
 import type { AiStreamEvent, AiToolRequest } from '../../shared/api'
-import type { ChatToolName } from '../../shared/chatMode'
+import { resolveProposeTabId, type ChatToolName } from '../../shared/chatMode'
 
 const LIST_OPEN_TABS = {
   type: 'function',
@@ -31,7 +31,7 @@ const PROPOSE_EDIT = {
   function: {
     name: 'propose_edit',
     description:
-      'Propose a document change. The user must approve it. Use replace_all for the whole file or replace_range for [from, to) character offsets.',
+      'Propose a document change. The user must approve it. Omit tab_id to target the current file. Use replace_all for the whole file or replace_range for [from, to) character offsets.',
     parameters: {
       type: 'object',
       properties: {
@@ -42,7 +42,7 @@ const PROPOSE_EDIT = {
         to: { type: 'integer' },
         note: { type: 'string' }
       },
-      required: ['tab_id', 'mode', 'text'],
+      required: ['mode', 'text'],
       additionalProperties: false
     }
   }
@@ -56,6 +56,7 @@ export function schemasForTools(names: readonly ChatToolName[]): unknown[] | und
 
 export type ToolRuntime = {
   requestId: string
+  mode: ChatMode
   activeTabId: string | null
   emit: (event: AiStreamEvent) => void
   askRenderer: (req: AiToolRequest) => Promise<string>
@@ -84,34 +85,37 @@ export async function executeTool(
 }
 
 function readTabId(argsJson: string): string {
-  try {
-    const parsed = JSON.parse(argsJson) as { tab_id?: string }
-    return typeof parsed.tab_id === 'string' ? parsed.tab_id : ''
-  } catch {
-    return ''
-  }
+  const parsed = parseToolArgsJson(argsJson) as { tab_id?: string } | null
+  return parsed && typeof parsed.tab_id === 'string' ? parsed.tab_id : ''
 }
 
 async function proposeEdit(rt: ToolRuntime, argsJson: string, callId: string): Promise<string> {
-  let parsedJson: unknown = {}
-  try {
-    parsedJson = JSON.parse(argsJson) as unknown
-  } catch {
-    return JSON.stringify({ error: 'JSON を解析できません' })
+  if (rt.mode === 'edit' && !rt.activeTabId) {
+    return JSON.stringify({ error: '開いているファイルがありません' })
   }
+  const parsedJson = parseToolArgsJson(argsJson)
+  if (parsedJson == null) return JSON.stringify({ error: 'JSON を解析できません' })
   const parsed = parseProposeEditArgs(parsedJson, rt.activeTabId ?? '')
   if ('error' in parsed) return JSON.stringify({ error: parsed.error })
 
-  rt.emit({ type: 'tool', name: 'propose_edit', detail: parsed.note || `変更案: ${parsed.tabId}` })
-  const snap = await rt.askRenderer({ callId: `${callId}:snap`, name: 'snapshot_tab', tabId: parsed.tabId })
-  let snapshot: { title?: string; content?: string; error?: string } = {}
+  const tabId = resolveProposeTabId({
+    mode: rt.mode,
+    requested: parsed.tabId,
+    activeTabId: rt.activeTabId
+  })
+  if (!tabId) return JSON.stringify({ error: '開いているファイルがありません' })
+
+  rt.emit({ type: 'tool', name: 'propose_edit', detail: parsed.note || `変更案: ${tabId}` })
+  const snap = await rt.askRenderer({ callId: `${callId}:snap`, name: 'snapshot_tab', tabId })
+  let snapshot: { id?: string; title?: string; content?: string; error?: string } = {}
   try {
-    snapshot = JSON.parse(snap) as { title?: string; content?: string; error?: string }
+    snapshot = JSON.parse(snap) as { id?: string; title?: string; content?: string; error?: string }
   } catch {
     snapshot = {}
   }
   if (snapshot.error) return snap
 
+  const appliedTabId = typeof snapshot.id === 'string' && snapshot.id ? snapshot.id : tabId
   const baseText = typeof snapshot.content === 'string' ? snapshot.content : ''
   const from = parsed.from ?? 0
   const to = parsed.to ?? 0
@@ -120,7 +124,7 @@ async function proposeEdit(rt: ToolRuntime, argsJson: string, callId: string): P
     messageId: randomUUID(),
     note: parsed.note,
     proposal: {
-      tabId: parsed.tabId,
+      tabId: appliedTabId,
       tabTitle: typeof snapshot.title === 'string' ? snapshot.title : '',
       mode: parsed.mode,
       text: parsed.text,
