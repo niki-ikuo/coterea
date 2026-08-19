@@ -5,7 +5,14 @@ import {
   providerById,
   type AiProviderId
 } from '../../shared/ai'
-import { choiceDelta, mergeToolCallDeltas, parseSseBlock, type ToolCallAcc } from '../../shared/openaiSse'
+import {
+  choiceDelta,
+  mergeToolCallDeltas,
+  parseSseBlock,
+  parseSseUsage,
+  type SseUsage,
+  type ToolCallAcc
+} from '../../shared/openaiSse'
 
 export type LlmMessage =
   | { role: 'system' | 'user' | 'assistant'; content: string }
@@ -34,7 +41,7 @@ export async function streamChatCompletion(input: {
   toolChoice?: 'auto' | 'none' | { type: 'function'; function: { name: string } }
   signal: AbortSignal
   onContent?: (text: string) => void
-}): Promise<{ content: string; toolCalls: CompletedToolCall[]; finishReason: string | null }> {
+}): Promise<{ content: string; toolCalls: CompletedToolCall[]; finishReason: string | null; usage: SseUsage | null }> {
   const url = completionsUrl(input.baseUrl)
   if (!url) throw new Error('API の Base URL が空です')
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -48,7 +55,8 @@ export async function streamChatCompletion(input: {
     messages: input.messages,
     temperature: input.temperature ?? AI_DEFAULT_TEMPERATURE,
     max_tokens: input.maxTokens ?? AI_DEFAULT_MAX_TOKENS,
-    stream: true
+    stream: true,
+    stream_options: { include_usage: true }
   }
   if (input.tools) {
     body.tools = input.tools
@@ -73,6 +81,7 @@ export async function streamChatCompletion(input: {
   let content = ''
   let acc: ToolCallAcc[] = []
   let finishReason: string | null = null
+  let usage: SseUsage | null = null
 
   while (true) {
     const { value, done } = await reader.read()
@@ -83,6 +92,8 @@ export async function streamChatCompletion(input: {
     for (const part of parts) {
       const parsed = parseSseBlock(part)
       if (parsed === 'done' || parsed == null) continue
+      const usageDelta = parseSseUsage(parsed)
+      if (usageDelta) usage = usageDelta
       const delta = choiceDelta(parsed)
       if (delta.content) {
         content += delta.content
@@ -100,7 +111,7 @@ export async function streamChatCompletion(input: {
       type: 'function' as const,
       function: { name: item.name, arguments: item.arguments || '{}' }
     }))
-  return { content, toolCalls, finishReason }
+  return { content, toolCalls, finishReason, usage }
 }
 
 function httpError(status: number, body: string): string {

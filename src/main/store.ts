@@ -16,6 +16,7 @@ import {
   parseProviderId,
   providerById
 } from '../shared/ai'
+import { normalizeResetDate, normalizeResetDayOfMonth } from '../shared/llmUsage'
 
 const MAX_RECENT = 12
 
@@ -39,7 +40,9 @@ function defaultStore(): Store {
         model: AI_DEFAULT_MODEL,
         temperature: AI_DEFAULT_TEMPERATURE,
         maxTokens: AI_DEFAULT_MAX_TOKENS,
-        maxAgentSteps: AI_DEFAULT_MAX_STEPS
+        maxAgentSteps: AI_DEFAULT_MAX_STEPS,
+        llmUsageAutoResetDay: undefined,
+        llmUsageAutoResetDate: undefined
       },
     recentFiles: [],
     session: { tabs: [], active: 0 }
@@ -84,7 +87,12 @@ export class AppStore {
         model: typeof raw.model === 'string' && raw.model.trim() ? raw.model : AI_DEFAULT_MODEL,
         temperature: clampTemperature(raw.temperature),
         maxTokens: clampMaxTokens(raw.maxTokens),
-        maxAgentSteps: clampMaxSteps(raw.maxAgentSteps)
+        maxAgentSteps: clampMaxSteps(raw.maxAgentSteps),
+        llmUsageAutoResetDay:
+          normalizeResetDayOfMonth(raw.llmUsageAutoResetDay) ??
+          normalizeResetDayOfMonth(typeof raw.llmUsageAutoResetDate === 'string' ? raw.llmUsageAutoResetDate.slice(8, 10) : undefined) ??
+          undefined,
+        llmUsageAutoResetDate: normalizeResetDate(raw.llmUsageAutoResetDate) ?? undefined
       }
     } catch {
       /* first run */
@@ -126,7 +134,13 @@ export class AppStore {
       ...(typeof patch.model === 'string' && patch.model.trim() ? { model: patch.model.trim() } : {}),
       ...(patch.temperature != null ? { temperature: clampTemperature(patch.temperature) } : {}),
       ...(patch.maxTokens != null ? { maxTokens: clampMaxTokens(patch.maxTokens) } : {}),
-      ...(patch.maxAgentSteps != null ? { maxAgentSteps: clampMaxSteps(patch.maxAgentSteps) } : {})
+      ...(patch.maxAgentSteps != null ? { maxAgentSteps: clampMaxSteps(patch.maxAgentSteps) } : {}),
+      ...(patch.llmUsageAutoResetDay != null
+        ? { llmUsageAutoResetDay: normalizeResetDayOfMonth(patch.llmUsageAutoResetDay) ?? undefined }
+        : {}),
+      ...(typeof patch.llmUsageAutoResetDate === 'string'
+        ? { llmUsageAutoResetDate: normalizeResetDate(patch.llmUsageAutoResetDate) ?? undefined }
+        : {})
     }
     await writeFile(this.settingsPath(), JSON.stringify(this.data.settings, null, 2), 'utf8')
     return this.getSettings()

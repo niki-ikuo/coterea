@@ -7,6 +7,7 @@ import type {
   SaveResult,
   WriteFileResult
 } from './types'
+import type { LlmUsageStats } from './llmUsage'
 import type { EncodingId } from './encoding'
 import type { ChatHistoryFile, ChatMode, ProposedEdit } from './ai'
 
@@ -111,6 +112,11 @@ export interface CotereaApi {
     onEvent: (cb: (payload: { requestId: string; event: AiStreamEvent }) => void) => () => void
     onTool: (cb: (payload: { requestId: string } & AiToolRequest) => void) => () => void
     onStatus: (cb: (payload: { hasKey: boolean; configured: boolean }) => void) => () => void
+    usage: {
+      get: () => Promise<LlmUsageStats>
+      reset: () => Promise<LlmUsageStats>
+      onChange: (cb: (usage: LlmUsageStats) => void) => () => void
+    }
   }
   chat: {
     get: () => Promise<ChatHistoryFile>

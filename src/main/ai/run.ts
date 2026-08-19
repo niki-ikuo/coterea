@@ -17,12 +17,14 @@ import {
   toolsForMode
 } from '../../shared/chatMode'
 import type { AppSettings } from '../../shared/types'
+import type { LlmUsageDelta } from '../../shared/llmUsage'
 import { resolveBaseUrl, streamChatCompletion, type CompletedToolCall, type LlmMessage } from './openaiCompat'
 import { executeTool, schemasForTools, type ToolRuntime } from './tools'
 
 export type AiRuntime = {
   getSettings: () => AppSettings
   getKey: () => Promise<string | null>
+  recordUsage?: (delta: LlmUsageDelta) => Promise<void>
 }
 
 type ChatRun = {
@@ -38,6 +40,7 @@ type ChatRun = {
   messages: { role: 'user' | 'assistant' | 'tool'; content: string; toolCallId?: string }[]
   activeTabId: string | null
   signal: AbortSignal
+  recordUsage?: (delta: LlmUsageDelta) => Promise<void>
 }
 
 const running = new Map<string, AbortController>()
@@ -108,7 +111,8 @@ export async function startAiChat(
     maxSteps: maxStepsForMode(req.mode, settings.maxAgentSteps),
     messages: req.messages,
     activeTabId: req.activeTabId,
-    signal: ac.signal
+    signal: ac.signal,
+    recordUsage: runtime.recordUsage
   }).finally(() => {
     running.delete(req.requestId)
   })
@@ -212,7 +216,7 @@ async function complete(
     toolChoice?: 'auto' | 'none' | { type: 'function'; function: { name: string } }
   }
 ): Promise<{ content: string; toolCalls: CompletedToolCall[] }> {
-  return streamChatCompletion({
+  const turn = await streamChatCompletion({
     providerId: ctx.providerId,
     baseUrl: ctx.baseUrl,
     apiKey: ctx.apiKey,
@@ -225,6 +229,24 @@ async function complete(
     signal: ctx.signal,
     onContent: (text) => emit(wc, ctx.requestId, { type: 'delta', text })
   })
+  await recordTurnUsage(ctx, turn.usage)
+  return turn
+}
+
+async function recordTurnUsage(
+  ctx: ChatRun,
+  usage: { promptTokens: number; completionTokens: number; totalTokens: number } | null
+): Promise<void> {
+  if (!ctx.recordUsage) return
+  await ctx.recordUsage(
+    usage
+      ? {
+          promptTokens: usage.promptTokens,
+          completionTokens: usage.completionTokens,
+          totalTokens: usage.totalTokens
+        }
+      : {}
+  )
 }
 
 function llmMessages(ctx: ChatRun): LlmMessage[] {

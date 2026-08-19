@@ -11,6 +11,7 @@ import {
   providerById,
   type AiProviderId
 } from '../../../shared/ai'
+import { formatTokenCountFull, type LlmUsageStats } from '../../../shared/llmUsage'
 import { setMdOutlineEnabled, setMinimapEnabled } from '../lib/actions'
 import { applyLoadedMonacoTheme } from '../lib/editorReady'
 import { applyUiTheme } from '../lib/uiTheme'
@@ -43,11 +44,14 @@ export function SettingsPane(): React.JSX.Element {
   const [temperature, setTemperature] = useState('0.2')
   const [maxTokens, setMaxTokens] = useState(String(AI_DEFAULT_MAX_TOKENS))
   const [maxAgentSteps, setMaxAgentSteps] = useState(String(AI_DEFAULT_MAX_STEPS))
+  const [llmUsageAutoResetDay, setLlmUsageAutoResetDay] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [hasKey, setHasKey] = useState(false)
   const [ready, setReady] = useState(false)
   const [saving, setSaving] = useState(false)
   const [clearingKey, setClearingKey] = useState(false)
+  const [aiUsage, setAiUsage] = useState<LlmUsageStats | null>(null)
+  const [resettingUsage, setResettingUsage] = useState(false)
 
   const markDirty = (): void => {
     useAppStore.getState().setTabs((tabs) =>
@@ -84,7 +88,8 @@ export function SettingsPane(): React.JSX.Element {
         model: model.trim(),
         temperature: clampTemperature(Number(temperature)),
         maxTokens: clampMaxTokens(Number(maxTokens)),
-        maxAgentSteps: clampMaxSteps(Number(maxAgentSteps))
+        maxAgentSteps: clampMaxSteps(Number(maxAgentSteps)),
+        llmUsageAutoResetDay: llmUsageAutoResetDay ? Number(llmUsageAutoResetDay) : undefined
       })
       if (apiKey.trim()) await window.coterea.ai.setKey(apiKey.trim())
       void window.coterea.collab.setDisplayName(s.displayName)
@@ -130,10 +135,24 @@ export function SettingsPane(): React.JSX.Element {
       setTemperature(String(settings.temperature ?? 0.2))
       setMaxTokens(String(settings.maxTokens ?? AI_DEFAULT_MAX_TOKENS))
       setMaxAgentSteps(String(settings.maxAgentSteps ?? AI_DEFAULT_MAX_STEPS))
+      setLlmUsageAutoResetDay(
+        settings.llmUsageAutoResetDay != null
+          ? String(settings.llmUsageAutoResetDay)
+          : settings.llmUsageAutoResetDate?.slice(8, 10) ?? ''
+      )
       const status = await window.coterea.ai.status()
       setHasKey(status.hasKey)
+      setAiUsage(await window.coterea.ai.usage.get())
       setReady(true)
     })()
+  }, [])
+
+  useEffect(() => {
+    const off = window.coterea.ai.usage.onChange((usage) => {
+      setAiUsage(usage)
+      useAppStore.getState().setAiUsage(usage)
+    })
+    return off
   }, [])
 
   const preset = providerById(providerId)
@@ -212,7 +231,7 @@ export function SettingsPane(): React.JSX.Element {
                 />
                 ミニマップを表示
               </label>
-              <p className="muted small">表示メニューからも切り替えでき、すぐ反映されて次回起動にも残ります。</p>
+              <p className="muted small">（表示メニューからも切り替えでき、すぐ反映されて次回起動にも残ります）</p>
             </div>
             <div className="settings-check-row">
               <label className="settings-check">
@@ -226,7 +245,7 @@ export function SettingsPane(): React.JSX.Element {
                 />
                 Markdown の見出しを表示
               </label>
-              <p className="muted small">表示メニューからも切り替えでき、すぐ反映されて次回起動にも残ります。</p>
+              <p className="muted small">（表示メニューからも切り替えでき、すぐ反映されて次回起動にも残ります）</p>
             </div>
           </>
         )}
@@ -365,6 +384,66 @@ export function SettingsPane(): React.JSX.Element {
               />
             </label>
             <p className="muted small">Ask / Edit は1回で終わります。この値は Agent のツール往復の上限です。</p>
+            {aiUsage && (
+              <div className="settings-usage">
+                <h2>LLM 利用状況（この端末の累計）</h2>
+                <dl className="settings-usage-stats">
+                  <div>
+                    <dt>リクエスト</dt>
+                    <dd>{formatTokenCountFull(aiUsage.requestCount)} 回</dd>
+                  </div>
+                  <div>
+                    <dt>入力トークン</dt>
+                    <dd>{formatTokenCountFull(aiUsage.promptTokens)}</dd>
+                  </div>
+                  <div>
+                    <dt>出力トークン</dt>
+                    <dd>{formatTokenCountFull(aiUsage.completionTokens)}</dd>
+                  </div>
+                  <div>
+                    <dt>合計トークン</dt>
+                    <dd>{formatTokenCountFull(aiUsage.totalTokens)}</dd>
+                  </div>
+                </dl>
+                <p className="muted small">
+                  チャットとヘルプの AI 質問を含みます。API が usage を返さない場合はリクエスト数のみ増えます。
+                </p>
+                <label>
+                  利用カウンターの毎月リセット日
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={llmUsageAutoResetDay}
+                    onChange={(e) => {
+                      setLlmUsageAutoResetDay(e.target.value)
+                      markDirty()
+                    }}
+                    disabled={!ready}
+                    placeholder="15"
+                  />
+                </label>
+                <p className="muted small">毎月この日になって最初の利用が発生したタイミングで、カウンターを自動で0にします。</p>
+                <button
+                  type="button"
+                  disabled={!ready || resettingUsage || (aiUsage.requestCount === 0 && aiUsage.totalTokens === 0)}
+                  onClick={() => {
+                    void (async () => {
+                      setResettingUsage(true)
+                      try {
+                        const next = await window.coterea.ai.usage.reset()
+                        setAiUsage(next)
+                        useAppStore.getState().setAiUsage(next)
+                      } finally {
+                        setResettingUsage(false)
+                      }
+                    })()
+                  }}
+                >
+                  カウンターをリセット
+                </button>
+              </div>
+            )}
           </>
         )}
         <div className="settings-save-row">

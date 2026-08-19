@@ -63,6 +63,8 @@ export async function loadChat(): Promise<void> {
   useAppStore.getState().setChat({ activeId, threads })
   const status = await window.coterea.ai.status()
   useAppStore.getState().setAiStatus(status)
+  const usage = await window.coterea.ai.usage.get()
+  useAppStore.getState().setAiUsage(usage)
 }
 
 export function newThread(): void {
@@ -409,11 +411,13 @@ export function attachAiListeners(): () => void {
   const offEvent = window.coterea.ai.onEvent(({ requestId, event }) => handleEvent(requestId, event))
   const offTool = window.coterea.ai.onTool((payload) => handleTool(payload))
   const offStatus = window.coterea.ai.onStatus((status) => useAppStore.getState().setAiStatus(status))
+  const offUsage = window.coterea.ai.usage.onChange((usage) => useAppStore.getState().setAiUsage(usage))
   return () => {
     listenersAttached = false
     offEvent()
     offTool()
     offStatus()
+    offUsage()
   }
 }
 

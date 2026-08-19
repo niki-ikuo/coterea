@@ -123,6 +123,18 @@ export async function askHelp(runtime: AiRuntime, request: HelpAskRequest): Prom
       signal
     })
 
+    if (runtime.recordUsage) {
+      await runtime.recordUsage(
+        result.usage
+          ? {
+              promptTokens: result.usage.promptTokens,
+              completionTokens: result.usage.completionTokens,
+              totalTokens: result.usage.totalTokens
+            }
+          : {}
+      )
+    }
+
     if (signal.aborted) return { answer: '', sources: [], commands: [], cancelled: true }
 
     const listed = sources.map((doc) => ({ id: doc.id, title: doc.title }))

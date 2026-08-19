@@ -3,6 +3,7 @@ import type { CollabStatus, PeerInfo } from '../../shared/types'
 import type { EncodingId } from '../../shared/encoding'
 import { DEFAULT_THEME, type ThemeId } from '../../shared/theme'
 import { defaultChatHistory, type ChatHistoryFile } from '../../shared/ai'
+import { emptyLlmUsage, type LlmUsageStats } from '../../shared/llmUsage'
 
 export type MdView = 'edit' | 'split' | 'preview'
 
@@ -73,6 +74,7 @@ type AppState = {
   chatRequestId: string | null
   aiConfigured: boolean
   aiHasKey: boolean
+  aiUsage: LlmUsageStats
   setDisplayName: (name: string) => void
   setTheme: (theme: ThemeId) => void
   setTabs: (tabs: TabInfo[] | ((prev: TabInfo[]) => TabInfo[])) => void
@@ -86,6 +88,7 @@ type AppState = {
   setChat: (chat: ChatHistoryFile | ((prev: ChatHistoryFile) => ChatHistoryFile)) => void
   setChatBusy: (busy: boolean, requestId?: string | null) => void
   setAiStatus: (status: { configured: boolean; hasKey: boolean }) => void
+  setAiUsage: (usage: LlmUsageStats) => void
 }
 
 const idleCollab: CollabState = {
@@ -125,6 +128,7 @@ export const useAppStore = create<AppState>((set) => ({
   chatRequestId: null,
   aiConfigured: false,
   aiHasKey: false,
+  aiUsage: emptyLlmUsage(),
   setDisplayName: (displayName) => set({ displayName }),
   setTheme: (theme) => set({ theme }),
   setTabs: (tabs) =>
@@ -142,7 +146,8 @@ export const useAppStore = create<AppState>((set) => ({
       chatBusy,
       ...(requestId !== undefined ? { chatRequestId: requestId } : !chatBusy ? { chatRequestId: null } : {})
     }),
-  setAiStatus: (status) => set({ aiConfigured: status.configured, aiHasKey: status.hasKey })
+  setAiStatus: (status) => set({ aiConfigured: status.configured, aiHasKey: status.hasKey }),
+  setAiUsage: (aiUsage) => set({ aiUsage })
 }))
 
 export function resetCollab(): void {

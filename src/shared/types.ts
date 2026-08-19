@@ -51,6 +51,8 @@ export interface AppSettings {
   temperature?: number
   maxTokens?: number
   maxAgentSteps?: number
+  llmUsageAutoResetDay?: number
+  llmUsageAutoResetDate?: string
 }
 
 export interface AboutInfo {

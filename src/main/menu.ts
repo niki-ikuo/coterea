@@ -33,8 +33,18 @@ export function buildMenu(
         { label: '名前を付けて保存...', accelerator: 'CmdOrCtrl+Shift+S', click: () => send('save-as') },
         { type: 'separator' },
         { label: 'タブを閉じる', accelerator: 'CmdOrCtrl+W', click: () => send('close-tab') },
+        { label: '他のタブを閉じる', click: () => send('close-other-tabs') },
+        { label: 'すべてのタブを閉じる', click: () => send('close-all-tabs') },
         { type: 'separator' },
-        { label: '設定...', click: () => send('settings') },
+        {
+          label: '設定',
+          submenu: [
+            { label: '一般', click: () => send('settings', 'general') },
+            { label: '外観', click: () => send('settings', 'appearance') },
+            { label: 'AI 接続', click: () => send('settings', 'ai-connection') },
+            { label: 'AI 詳細', click: () => send('settings', 'ai-params') }
+          ]
+        },
         { type: 'separator' },
         { label: '終了', accelerator: 'Alt+F4', click: () => win.close() }
       ]
@@ -57,7 +67,7 @@ export function buildMenu(
       label: '表示',
       submenu: [
         {
-          label: 'AIパネル',
+          label: '右パネル',
           type: 'checkbox',
           checked: collabPaneVisible,
           accelerator: 'CmdOrCtrl+\\',
@@ -77,6 +87,17 @@ export function buildMenu(
         },
         { type: 'separator' },
         {
+          label: 'タブ',
+          submenu: [
+            { label: '次のタブ', click: () => send('next-tab') },
+            { label: '前のタブ', click: () => send('prev-tab') },
+            { type: 'separator' },
+            { label: 'タブを閉じる', accelerator: 'CmdOrCtrl+W', click: () => send('close-tab') },
+            { label: '他のタブを閉じる', click: () => send('close-other-tabs') },
+            { label: 'すべてのタブを閉じる', click: () => send('close-all-tabs') }
+          ]
+        },
+        {
           label: 'Markdown',
           submenu: [
             { label: '編集のみ', click: () => send('md-view', 'edit') },
@@ -94,14 +115,6 @@ export function buildMenu(
             checked: theme === item.id,
             click: () => send('theme', item.id)
           }))
-        },
-        {
-          label: '次のタブ',
-          click: () => send('next-tab')
-        },
-        {
-          label: '前のタブ',
-          click: () => send('prev-tab')
         },
         { type: 'separator' },
         { role: 'reload', label: '再読み込み' },

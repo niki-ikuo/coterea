@@ -152,6 +152,16 @@ const api = {
       ): void => cb(payload)
       ipcRenderer.on('ai:status', listener)
       return () => ipcRenderer.removeListener('ai:status', listener)
+    },
+    usage: {
+      get: () => ipcRenderer.invoke('ai:usage:get'),
+      reset: () => ipcRenderer.invoke('ai:usage:reset'),
+      onChange: (cb: (usage: import('../shared/llmUsage').LlmUsageStats) => void) => {
+        const listener = (_e: Electron.IpcRendererEvent, usage: import('../shared/llmUsage').LlmUsageStats): void =>
+          cb(usage)
+        ipcRenderer.on('ai:usage', listener)
+        return () => ipcRenderer.removeListener('ai:usage', listener)
+      }
     }
   },
   chat: {

@@ -3,6 +3,7 @@ import { encodingLabel, ENCODINGS, type EncodingId } from '../../../shared/encod
 import { reopenWithEncoding, setTabEncoding, cycleMdView } from '../lib/actions'
 import { isMarkdownLanguage, languageLabel } from '../lib/fileMeta'
 import { isVirtualTab, useAppStore } from '../store'
+import { formatTokenCountCompact } from '../../../shared/llmUsage'
 import { CollabFold } from './CollabFold'
 
 export function StatusBar(): React.JSX.Element {
@@ -12,7 +13,18 @@ export function StatusBar(): React.JSX.Element {
   const activeTabId = useAppStore((s) => s.activeTabId)
   const aiConfigured = useAppStore((s) => s.aiConfigured)
   const chatBusy = useAppStore((s) => s.chatBusy)
+  const aiUsage = useAppStore((s) => s.aiUsage)
   const tab = tabs.find((t) => t.id === activeTabId)
+
+  const aiLabel = chatBusy ? '生成中' : aiConfigured ? '接続可' : '未設定'
+  const usageHint =
+    aiUsage.requestCount > 0 || aiUsage.totalTokens > 0
+      ? `LLM リクエスト ${aiUsage.requestCount} 回 / トークン ${formatTokenCountCompact(aiUsage.totalTokens)}`
+      : undefined
+  const aiText =
+    aiUsage.requestCount > 0 || aiUsage.totalTokens > 0
+      ? `AI: ${aiLabel} · ${aiUsage.requestCount}回 · ${formatTokenCountCompact(aiUsage.totalTokens)} tok`
+      : `AI: ${aiLabel}`
 
   return (
     <footer className="statusbar">
@@ -38,7 +50,7 @@ export function StatusBar(): React.JSX.Element {
           保存失敗
         </span>
       ) : null}
-      <span>AI: {chatBusy ? '生成中' : aiConfigured ? '接続可' : '未設定'}</span>
+      <span title={usageHint}>{aiText}</span>
     </footer>
   )
 }

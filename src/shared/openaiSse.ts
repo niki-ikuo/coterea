@@ -31,6 +31,33 @@ export function mergeToolCallDeltas(
   return next
 }
 
+export type SseUsage = {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+}
+
+export function parseSseUsage(payload: unknown): SseUsage | null {
+  if (!payload || typeof payload !== 'object') return null
+  const usage = (payload as { usage?: Record<string, unknown> }).usage
+  if (!usage || typeof usage !== 'object') return null
+  const promptTokens = nonNegNumber(usage.prompt_tokens)
+  const completionTokens = nonNegNumber(usage.completion_tokens)
+  const totalTokens = nonNegNumber(usage.total_tokens)
+  if (promptTokens == null && completionTokens == null && totalTokens == null) return null
+  const prompt = promptTokens ?? 0
+  const completion = completionTokens ?? 0
+  return {
+    promptTokens: prompt,
+    completionTokens: completion,
+    totalTokens: totalTokens ?? prompt + completion
+  }
+}
+
+function nonNegNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
+}
+
 export function choiceDelta(payload: unknown): {
   content: string
   toolCalls: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }>

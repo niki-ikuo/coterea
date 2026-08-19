@@ -4,7 +4,7 @@ import { StatusBar } from './components/StatusBar'
 import { TabBar } from './components/TabBar'
 import { TitleBar } from './components/TitleBar'
 import { attachCollabListeners, enableCollab } from './lib/collab'
-import { closeTab, createUntitled, cycleMdView, cycleTab, handleAppClose, openDialog, openPaths, openPathsFromShell, openSettingsTab, saveActive, setCollabPaneVisible, setMdView, toggleCollabPane, toggleMdOutline, toggleMinimap, attachFileWatch } from './lib/actions'
+import { attachFileWatch, closeAllTabs, closeOtherTabs, closeTab, createUntitled, cycleMdView, cycleTab, handleAppClose, openDialog, openPaths, openPathsFromShell, openSettingsTab, saveActive, setCollabPaneVisible, setMdView, toggleCollabPane, toggleMdOutline, toggleMinimap } from './lib/actions'
 import { attachAiListeners, loadChat } from './lib/chat'
 import { preloadEditor, applyLoadedMonacoTheme } from './lib/editorReady'
 import { applyUiTheme } from './lib/uiTheme'
@@ -101,6 +101,8 @@ export function App(): React.JSX.Element {
       if (action === 'save') void saveActive(false)
       if (action === 'save-as') void saveActive(true)
       if (action === 'close-tab' && tabId) void closeTab(tabId)
+      if (action === 'close-other-tabs' && tabId) void closeOtherTabs(tabId)
+      if (action === 'close-all-tabs') void closeAllTabs()
       if (action === 'next-tab') cycleTab(1)
       if (action === 'prev-tab') cycleTab(-1)
       if (action === 'collab-notice') void window.coterea.app.showCollabNotice()
@@ -122,7 +124,13 @@ export function App(): React.JSX.Element {
       if (action === 'toggle-minimap') void toggleMinimap()
       if (action === 'toggle-md-outline') void toggleMdOutline()
       if (action === 'settings') {
-        const section = extra === 'appearance' || extra === 'ai' || extra === 'general' ? extra : undefined
+        const section =
+          extra === 'general' ||
+          extra === 'appearance' ||
+          extra === 'ai-connection' ||
+          extra === 'ai-params'
+            ? extra
+            : undefined
         openSettingsTab(section)
       }
       if (action === 'theme' && extra) {

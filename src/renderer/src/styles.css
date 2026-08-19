@@ -705,19 +705,19 @@ html[data-theme='hc-dark'] .tab-close {
   flex: 1;
   min-width: 0;
   overflow: auto;
-  padding: 20px 28px 28px;
-  gap: 12px;
+  padding: 16px 24px 20px;
+  gap: 8px;
 }
 
 .settings-body h1 {
-  margin: 0 0 8px;
+  margin: 0 0 4px;
   font-size: 22px;
   font-weight: 700;
   color: var(--text);
 }
 
 .settings-save-row {
-  margin-top: 12px;
+  margin-top: 6px;
   display: flex;
   justify-content: flex-start;
 }
@@ -756,6 +756,58 @@ html[data-theme='hc-dark'] .tab-close {
 }
 
 .settings-key-actions button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.settings-usage {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-usage h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.settings-usage-stats {
+  margin: 0 0 6px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+}
+
+.settings-usage-stats div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-usage-stats dt {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.settings-usage-stats dd {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.settings-usage button {
+  border: 1px solid var(--line);
+  background: var(--bg-3);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.settings-usage button:disabled {
   opacity: 0.55;
   cursor: default;
 }
@@ -1926,7 +1978,21 @@ label {
 .settings-body.dialog-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 6px;
+}
+
+.settings-body.dialog-form label {
+  gap: 4px;
+}
+
+.settings-body.dialog-form > p.muted.small {
+  margin: 0;
+  line-height: 1.35;
+}
+
+.settings-body.dialog-form input:not([type='checkbox']),
+.settings-body.dialog-form select {
+  padding: 8px 10px;
 }
 
 .dialog-form label {
@@ -2868,7 +2934,7 @@ html[data-theme='hc-light'] .chat-mode-trigger.mode-agent {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 12px;
+  gap: 8px;
 }
 
 .settings-check {

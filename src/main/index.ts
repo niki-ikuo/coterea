@@ -22,6 +22,7 @@ import { showAiHelpWindowFromSender, showHelpWindowFromSender } from './helpWind
 import { SecretStore } from './secrets'
 import { ChatHistoryStore } from './chatStore'
 import { abortAi, aiStatusFrom, resolveToolResult, startAiChat } from './ai/run'
+import { AiUsageStore } from './aiUsageStore'
 import { askHelp, cancelHelpAsk } from './helpAsk'
 import { getHelpDoc, listHelpDocs, searchHelpDocs } from './help'
 import type { ChatHistoryFile } from '../shared/ai'
@@ -30,6 +31,7 @@ import appIcon from '../../resources/icon.png?asset'
 
 const store = new AppStore()
 const secrets = new SecretStore()
+const aiUsage = new AiUsageStore()
 const chatHistory = new ChatHistoryStore()
 const hub = new CollabHub()
 const fileWatcher = new FileWatcher()
@@ -147,6 +149,33 @@ function createWindow(): void {
   loadRenderer(mainWindow)
 }
 
+function broadcastAiUsage(): void {
+  const usage = aiUsage.get()
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed() || win.webContents.isDestroyed()) continue
+    win.webContents.send('ai:usage', usage)
+  }
+}
+
+async function ensureAutoResetByDate(): Promise<void> {
+  await store.load()
+  const settingDay = store.getSettings().llmUsageAutoResetDay
+  const result = await aiUsage.maybeAutoReset(settingDay)
+  if (result.changed) broadcastAiUsage()
+}
+
+function aiRuntime() {
+  return {
+    getSettings: () => store.getSettings(),
+    getKey: () => secrets.load(),
+    recordUsage: async (delta: import('../shared/llmUsage').LlmUsageDelta) => {
+      await ensureAutoResetByDate()
+      await aiUsage.record(delta)
+      broadcastAiUsage()
+    }
+  }
+}
+
 function registerIpc(): void {
   ipcMain.handle('settings:get', async () => {
     await store.load()
@@ -154,6 +183,8 @@ function registerIpc(): void {
   })
   ipcMain.handle('settings:set', async (_e, patch: Partial<import('../shared/types').AppSettings>) => {
     const next = await store.setSettings(patch)
+    await aiUsage.maybeAutoReset(next.llmUsageAutoResetDay)
+    broadcastAiUsage()
     const theme = parseTheme(next.theme)
     nativeTheme.themeSource = isDarkTheme(theme) ? 'dark' : 'light'
     for (const win of BrowserWindow.getAllWindows()) {
@@ -268,7 +299,7 @@ function registerIpc(): void {
     if (typeof command !== 'string') return
     if (command === 'Open Settings') sendMenu('settings')
     if (command === 'Open Appearance Settings') sendMenu('settings', 'appearance')
-    if (command === 'Open Provider') sendMenu('settings', 'ai')
+    if (command === 'Open Provider') sendMenu('settings', 'ai-connection')
     if (command === 'Focus Chat') sendMenu('show-right')
     mainWindow?.focus()
   })
@@ -316,6 +347,16 @@ function registerIpc(): void {
     await store.load()
     return aiStatusFrom(store.getSettings(), await secrets.hasKey())
   })
+  ipcMain.handle('ai:usage:get', async () => {
+    await aiUsage.load()
+    await ensureAutoResetByDate()
+    return aiUsage.get()
+  })
+  ipcMain.handle('ai:usage:reset', async () => {
+    const next = await aiUsage.reset()
+    broadcastAiUsage()
+    return next
+  })
   ipcMain.handle('ai:setKey', async (_e, key: unknown) => {
     await secrets.setKey(typeof key === 'string' ? key : '')
     await store.load()
@@ -329,10 +370,7 @@ function registerIpc(): void {
     if (!req || typeof req.requestId !== 'string' || !req.requestId) {
       return { ok: false, error: 'requestId がありません' }
     }
-    return startAiChat(event.sender, {
-      getSettings: () => store.getSettings(),
-      getKey: () => secrets.load()
-    }, req)
+    return startAiChat(event.sender, aiRuntime(), req)
   })
   ipcMain.handle('ai:stop', async (_e, requestId: unknown) => {
     if (typeof requestId === 'string') abortAi(requestId)
@@ -360,13 +398,7 @@ function registerIpc(): void {
       request && typeof request === 'object' && typeof (request as { currentDocId?: unknown }).currentDocId === 'string'
         ? (request as { currentDocId: string }).currentDocId
         : undefined
-    return askHelp(
-      {
-        getSettings: () => store.getSettings(),
-        getKey: () => secrets.load()
-      },
-      { question, currentDocId }
-    )
+    return askHelp(aiRuntime(), { question, currentDocId })
   })
   ipcMain.handle('help:cancelAsk', () => cancelHelpAsk())
 }
