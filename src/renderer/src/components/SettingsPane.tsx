@@ -26,7 +26,8 @@ import { useAppStore } from '../store'
 const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: 'general', label: '一般' },
   { id: 'appearance', label: '外観' },
-  { id: 'ai', label: 'AI' }
+  { id: 'ai-connection', label: 'AI 接続' },
+  { id: 'ai-params', label: 'AI 詳細' }
 ]
 
 export function SettingsPane(): React.JSX.Element {
@@ -199,34 +200,39 @@ export function SettingsPane(): React.JSX.Element {
               </select>
             </label>
             <p className="muted small">保存するまで、次回起動には反映しません。</p>
-            <label className="settings-check">
-              <input
-                type="checkbox"
-                checked={minimapEnabled}
-                disabled={!ready}
-                onChange={(e) => {
-                  void setMinimapEnabled(e.target.checked)
-                }}
-              />
-              ミニマップを表示
-            </label>
-            <label className="settings-check">
-              <input
-                type="checkbox"
-                checked={mdOutlineEnabled}
-                disabled={!ready}
-                onChange={(e) => {
-                  void setMdOutlineEnabled(e.target.checked)
-                }}
-              />
-              Markdown の見出しを表示
-            </label>
-            <p className="muted small">表示メニューからも切り替えできます。すぐ反映され、次回起動にも残ります。</p>
+            <div className="settings-check-row">
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={minimapEnabled}
+                  disabled={!ready}
+                  onChange={(e) => {
+                    void setMinimapEnabled(e.target.checked)
+                  }}
+                />
+                ミニマップを表示
+              </label>
+              <p className="muted small">表示メニューからも切り替えでき、すぐ反映されて次回起動にも残ります。</p>
+            </div>
+            <div className="settings-check-row">
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={mdOutlineEnabled}
+                  disabled={!ready}
+                  onChange={(e) => {
+                    void setMdOutlineEnabled(e.target.checked)
+                  }}
+                />
+                Markdown の見出しを表示
+              </label>
+              <p className="muted small">表示メニューからも切り替えでき、すぐ反映されて次回起動にも残ります。</p>
+            </div>
           </>
         )}
-        {section === 'ai' && (
+        {section === 'ai-connection' && (
           <>
-            <h1>AI</h1>
+            <h1>AI 接続</h1>
             <label>
               プロバイダ
               <select
@@ -296,6 +302,7 @@ export function SettingsPane(): React.JSX.Element {
                 autoComplete="off"
               />
             </label>
+            <p className="muted small">Key は端末内で暗号化して保存し、チャット画面には出しません。</p>
             {hasKey && (
               <div className="settings-key-actions">
                 <button
@@ -319,6 +326,11 @@ export function SettingsPane(): React.JSX.Element {
                 </button>
               </div>
             )}
+          </>
+        )}
+        {section === 'ai-params' && (
+          <>
+            <h1>AI 詳細</h1>
             <label>
               温度
               <input
@@ -353,7 +365,6 @@ export function SettingsPane(): React.JSX.Element {
               />
             </label>
             <p className="muted small">Ask / Edit は1回で終わります。この値は Agent のツール往復の上限です。</p>
-            <p className="muted small">Key は端末内で暗号化して保存し、チャット画面には出しません。</p>
           </>
         )}
         <div className="settings-save-row">

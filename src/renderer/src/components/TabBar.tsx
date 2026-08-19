@@ -1,4 +1,16 @@
-import { activateTabAt, closeTab, createUntitled, cycleTab, setMdScrollSync, setMdView } from '../lib/actions'
+import { useEffect, useRef, useState } from 'react'
+import {
+  activateTabAt,
+  closeAllTabs,
+  closeOtherTabs,
+  closeTab,
+  createUntitled,
+  cycleTab,
+  reloadTabFromDisk,
+  saveTab,
+  setMdScrollSync,
+  setMdView
+} from '../lib/actions'
 import { isMarkdownLanguage } from '../lib/fileMeta'
 import { isSettingsTab, useAppStore, type MdView, type TabInfo } from '../store'
 
@@ -53,6 +65,7 @@ export function TabBar(): React.JSX.Element | null {
   const activeTabId = useAppStore((s) => s.activeTabId)
   const setActiveTabId = useAppStore((s) => s.setActiveTabId)
   const active = tabs.find((t) => t.id === activeTabId)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; tabId: string } | null>(null)
 
   if (tabs.length === 0) return null
 
@@ -71,6 +84,10 @@ export function TabBar(): React.JSX.Element | null {
                 aria-selected={selected}
                 tabIndex={selected ? 0 : -1}
                 onClick={() => setActiveTabId(tab.id)}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  setCtxMenu({ x: e.clientX, y: e.clientY, tabId: tab.id })
+                }}
                 onMouseDown={(e) => {
                   if (e.button === 1) e.preventDefault()
                 }}
@@ -156,8 +173,94 @@ export function TabBar(): React.JSX.Element | null {
           title="ダブルクリックで新しいタブ"
         />
       </div>
+      {ctxMenu && (
+        <TabContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          tabId={ctxMenu.tabId}
+          hasOthers={tabs.length > 1}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
       {active && isMarkdownLanguage(active.language) && !isSettingsTab(active) && <MarkdownToolbar tab={active} />}
     </>
+  )
+}
+
+function TabContextMenu({
+  x,
+  y,
+  tabId,
+  hasOthers,
+  onClose
+}: {
+  x: number
+  y: number
+  tabId: string
+  hasOthers: boolean
+  onClose: () => void
+}): React.JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const onPointerDown = (e: PointerEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        onClose()
+      }
+    }
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true)
+      window.removeEventListener('keydown', onKeyDown, true)
+    }
+  }, [onClose])
+
+  const run = (fn: () => Promise<unknown>): void => {
+    onClose()
+    void fn()
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="tab-ctx-menu"
+      style={{ left: x, top: y }}
+      role="menu"
+    >
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => run(() => saveTab(tabId, false).then(() => undefined))}
+      >
+        保存
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => run(() => saveTab(tabId, true).then(() => undefined))}
+      >
+        別名で保存
+      </button>
+      <button type="button" role="menuitem" onClick={() => run(() => reloadTabFromDisk(tabId))}>
+        再読み込み
+      </button>
+      <div style={{ height: 4 }} />
+      <button type="button" role="menuitem" onClick={() => run(() => closeTab(tabId))}>
+        閉じる
+      </button>
+      {hasOthers && (
+        <button type="button" role="menuitem" onClick={() => run(() => closeOtherTabs(tabId))}>
+          他を閉じる
+        </button>
+      )}
+      <button type="button" role="menuitem" onClick={() => run(() => closeAllTabs())}>
+        すべて閉じる
+      </button>
+    </div>
   )
 }
 

@@ -19,7 +19,7 @@ import {
 import { markDirty } from './collab'
 import { preloadEditor } from './editorReady'
 import { getActiveEditor } from './editorHandle'
-import { openSettingsTab } from './actions'
+import { openSettingsTab, setCollabPaneVisible } from './actions'
 import { isVirtualTab, useAppStore } from '../store'
 import type { AiStreamEvent, AiToolRequest } from '../../../shared/api'
 
@@ -99,10 +99,12 @@ export function closeThread(id: string): void {
   if (!hasContent) {
     if (cannotDeleteLastThread(openThreads.length)) {
       patchActiveThread((t) => ({ ...t, title: '新しい会話', messages: [], draft: '', updatedAt: Date.now(), open: true }))
+      void setCollabPaneVisible(false)
       return
     }
     const threads = chat.threads.filter((t) => t.id !== id)
     const nextOpen = openChatThreads(threads)
+    if (nextOpen.length === 0) void setCollabPaneVisible(false)
     const activeId = chat.activeId === id ? nextOpen[nextOpen.length - 1]?.id ?? threads[0].id : chat.activeId
     useAppStore.getState().setChat({ activeId, threads })
     persistSoon()
@@ -114,15 +116,35 @@ export function closeThread(id: string): void {
   if (activeId === id) {
     const stillOpen = openChatThreads(threads)
     if (stillOpen.length === 0) {
+      void setCollabPaneVisible(false)
       const fresh = emptyThread(crypto.randomUUID())
       threads = [...threads, fresh]
       activeId = fresh.id
     } else {
       activeId = stillOpen[stillOpen.length - 1].id
     }
+  } else {
+    const stillOpen = openChatThreads(threads)
+    if (stillOpen.length === 0) void setCollabPaneVisible(false)
   }
   useAppStore.getState().setChat({ activeId, threads })
   persistSoon()
+}
+
+export function closeOtherThreads(keepId: string): void {
+  const chat = useAppStore.getState().chat
+  const open = openChatThreads(chat.threads)
+  for (const thread of open) {
+    if (thread.id !== keepId) closeThread(thread.id)
+  }
+}
+
+export function closeAllThreads(): void {
+  const chat = useAppStore.getState().chat
+  const open = openChatThreads(chat.threads)
+  for (const thread of open) {
+    closeThread(thread.id)
+  }
 }
 
 export function reopenThread(id: string): void {
@@ -196,7 +218,7 @@ export async function sendChat(): Promise<void> {
   if (useAppStore.getState().chatBusy) return
   const configured = useAppStore.getState().aiConfigured
   if (!configured) {
-    void openSettingsTab('ai')
+    void openSettingsTab('ai-connection')
     return
   }
 

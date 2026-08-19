@@ -60,7 +60,7 @@ function CollabPicker(): React.JSX.Element {
         ? '接続失敗'
         : collab.udpPeerCount > 0
           ? '検出中'
-          : '一人'
+          : 'なし'
   const showHint = Boolean(collab.netHint) && (failed || collab.status === 'connecting')
 
   useEffect(() => {

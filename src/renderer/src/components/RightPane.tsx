@@ -4,6 +4,8 @@ import { OverlayScroll } from './OverlayScroll'
 import { openSettingsTab } from '../lib/actions'
 import {
   applyAllPending,
+  closeAllThreads,
+  closeOtherThreads,
   applyProposal,
   closeThread,
   deleteThreadHistory,
@@ -29,6 +31,7 @@ export function RightPane(): React.JSX.Element {
   const busy = useAppStore((s) => s.chatBusy)
   const configured = useAppStore((s) => s.aiConfigured)
   const [renaming, setRenaming] = useState<string | null>(null)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; threadId: string } | null>(null)
   const openThreads = openChatThreads(chat.threads)
   const thread = openThreads.find((t) => t.id === chat.activeId) ?? openThreads[0]
   const pending = thread?.messages.filter((m) => m.proposal && m.proposalStatus === 'pending') ?? []
@@ -48,6 +51,10 @@ export function RightPane(): React.JSX.Element {
                   aria-selected={selected}
                   onClick={() => selectThread(item.id)}
                   onDoubleClick={() => setRenaming(item.id)}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    setCtxMenu({ x: e.clientX, y: e.clientY, threadId: item.id })
+                  }}
                 >
                   {renaming === item.id ? (
                     <input
@@ -97,6 +104,15 @@ export function RightPane(): React.JSX.Element {
           </div>
         </div>
       )}
+      {ctxMenu ? (
+        <ChatTabContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          threadId={ctxMenu.threadId}
+          hasOthers={openThreads.length > 1}
+          onClose={() => setCtxMenu(null)}
+        />
+      ) : null}
 
       <ChatLog messages={thread?.messages ?? []} busy={busy} />
 
@@ -113,7 +129,7 @@ export function RightPane(): React.JSX.Element {
           {!configured && (
             <p className="muted small">
               API が未設定です。
-              <button type="button" className="linkish" onClick={() => openSettingsTab('ai')}>
+              <button type="button" className="linkish" onClick={() => openSettingsTab('ai-connection')}>
                 設定を開く
               </button>
             </p>
@@ -197,6 +213,58 @@ function PlusIcon(): React.JSX.Element {
     <svg {...iconProps()}>
       <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
+  )
+}
+
+function ChatTabContextMenu({
+  x,
+  y,
+  threadId,
+  hasOthers,
+  onClose
+}: {
+  x: number
+  y: number
+  threadId: string
+  hasOthers: boolean
+  onClose: () => void
+}): React.JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  const run = (fn: () => void): void => {
+    onClose()
+    fn()
+  }
+
+  return (
+    <div ref={ref} className="tab-ctx-menu" style={{ left: x, top: y }} role="menu">
+      <button type="button" role="menuitem" onClick={() => run(() => closeThread(threadId))}>
+        閉じる
+      </button>
+      {hasOthers ? (
+        <button type="button" role="menuitem" onClick={() => run(() => closeOtherThreads(threadId))}>
+          他を閉じる
+        </button>
+      ) : null}
+      <button type="button" role="menuitem" onClick={() => run(() => closeAllThreads())}>
+        すべて閉じる
+      </button>
+    </div>
   )
 }
 

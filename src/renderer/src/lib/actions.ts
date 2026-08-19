@@ -374,6 +374,21 @@ export async function closeTab(tabId: string): Promise<void> {
   publishManifest()
 }
 
+export async function closeOtherTabs(keepTabId: string): Promise<void> {
+  const { tabs } = useAppStore.getState()
+  const others = tabs.filter((t) => t.id !== keepTabId)
+  for (const tab of others) {
+    await closeTab(tab.id)
+  }
+}
+
+export async function closeAllTabs(): Promise<void> {
+  const { tabs } = useAppStore.getState()
+  for (const tab of [...tabs]) {
+    await closeTab(tab.id)
+  }
+}
+
 export async function handleAppClose(): Promise<void> {
   await flushPendingSaves()
   const dirty = useAppStore.getState().tabs.filter((t) => t.isDirty)

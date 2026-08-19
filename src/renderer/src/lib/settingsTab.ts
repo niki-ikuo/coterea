@@ -1,4 +1,4 @@
-export type SettingsSection = 'general' | 'appearance' | 'ai'
+export type SettingsSection = 'general' | 'appearance' | 'ai-connection' | 'ai-params'
 
 const listeners = new Set<(section: SettingsSection) => void>()
 let wanted: SettingsSection = 'general'
