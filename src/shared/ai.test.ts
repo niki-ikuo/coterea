@@ -6,7 +6,6 @@ import {
   completionsUrl,
   parseProposeEditArgs,
   sanitizeChatHistory,
-  shouldStopAgentLoop,
   titleFromPrompt
 } from './ai'
 import { diffLines, previewTexts } from './lineDiff'
@@ -114,15 +113,6 @@ describe('collision', () => {
         }
       })
     ).toBe('stale')
-  })
-})
-
-describe('agent loop', () => {
-  it('上限と停止で終わる', () => {
-    expect(shouldStopAgentLoop({ step: 12, maxSteps: 12, aborted: false, hasToolCalls: true })).toBe(true)
-    expect(shouldStopAgentLoop({ step: 1, maxSteps: 12, aborted: true, hasToolCalls: true })).toBe(true)
-    expect(shouldStopAgentLoop({ step: 1, maxSteps: 12, aborted: false, hasToolCalls: false })).toBe(true)
-    expect(shouldStopAgentLoop({ step: 1, maxSteps: 12, aborted: false, hasToolCalls: true })).toBe(false)
   })
 })
 

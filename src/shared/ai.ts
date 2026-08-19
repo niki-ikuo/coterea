@@ -339,14 +339,3 @@ export function classifyApplyCollision(input: {
   if (input.proposal.rangeBase != null && slice !== input.proposal.rangeBase) return 'stale'
   return 'ok'
 }
-
-export function shouldStopAgentLoop(input: {
-  step: number
-  maxSteps: number
-  aborted: boolean
-  hasToolCalls: boolean
-}): boolean {
-  if (input.aborted) return true
-  if (input.step >= input.maxSteps) return true
-  return !input.hasToolCalls
-}

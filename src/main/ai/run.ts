@@ -1,40 +1,67 @@
-import { randomUUID } from 'crypto'
 import type { WebContents } from 'electron'
 import {
   AI_DEFAULT_MODEL,
   aiIsConfigured,
-  clampMaxSteps,
   clampMaxTokens,
   clampTemperature,
-  parseProposeEditArgs,
   parseProviderId,
   providerById,
-  shouldStopAgentLoop,
-  type AiProviderId
+  type ChatMode
 } from '../../shared/ai'
 import type { AiStreamEvent, AiToolRequest } from '../../shared/api'
+import {
+  decideAgentTurn,
+  editUnsupportedToolMessage,
+  maxStepsForMode,
+  systemPromptFor,
+  toolsForMode
+} from '../../shared/chatMode'
 import type { AppSettings } from '../../shared/types'
-import { AGENT_TOOLS, resolveBaseUrl, streamChatCompletion, type LlmMessage } from './openaiCompat'
+import { resolveBaseUrl, streamChatCompletion, type CompletedToolCall, type LlmMessage } from './openaiCompat'
+import { executeTool, schemasForTools, type ToolRuntime } from './tools'
 
 export type AiRuntime = {
   getSettings: () => AppSettings
   getKey: () => Promise<string | null>
 }
 
+type ChatRun = {
+  requestId: string
+  mode: ChatMode
+  providerId: ReturnType<typeof parseProviderId>
+  baseUrl: string
+  apiKey: string
+  model: string
+  temperature: number
+  maxTokens: number
+  maxSteps: number
+  messages: { role: 'user' | 'assistant' | 'tool'; content: string; toolCallId?: string }[]
+  activeTabId: string | null
+  signal: AbortSignal
+}
+
 const running = new Map<string, AbortController>()
-const pendingTools = new Map<string, (result: string) => void>()
+const pendingTools = new Map<string, { resolve: (result: string) => void; reject: (err: Error) => void }>()
 
 export function abortAi(requestId: string): void {
   running.get(requestId)?.abort()
   running.delete(requestId)
+  rejectPendingTools(requestId, '停止しました')
 }
 
 export function resolveToolResult(requestId: string, callId: string, result: string): void {
-  const key = `${requestId}:${callId}`
-  const wait = pendingTools.get(key)
+  const wait = pendingTools.get(`${requestId}:${callId}`)
   if (wait) {
+    pendingTools.delete(`${requestId}:${callId}`)
+    wait.resolve(result)
+  }
+}
+
+function rejectPendingTools(requestId: string, message: string): void {
+  for (const [key, wait] of pendingTools) {
+    if (!key.startsWith(`${requestId}:`)) continue
     pendingTools.delete(key)
-    wait(result)
+    wait.reject(new Error(message))
   }
 }
 
@@ -49,7 +76,7 @@ export async function startAiChat(
   runtime: AiRuntime,
   req: {
     requestId: string
-    mode: 'ask' | 'edit' | 'agent'
+    mode: ChatMode
     messages: { role: 'user' | 'assistant' | 'tool'; content: string; toolCallId?: string }[]
     activeTabId: string | null
     selection?: { from: number; to: number; text: string } | null
@@ -69,7 +96,7 @@ export async function startAiChat(
   const ac = new AbortController()
   running.set(req.requestId, ac)
 
-  void runLoop(wc, {
+  void runChat(wc, {
     requestId: req.requestId,
     mode: req.mode,
     providerId,
@@ -78,15 +105,176 @@ export async function startAiChat(
     model,
     temperature: clampTemperature(settings.temperature),
     maxTokens: clampMaxTokens(settings.maxTokens),
-    maxSteps: req.mode === 'agent' ? clampMaxSteps(settings.maxAgentSteps) : req.mode === 'edit' ? 2 : 1,
+    maxSteps: maxStepsForMode(req.mode, settings.maxAgentSteps),
     messages: req.messages,
     activeTabId: req.activeTabId,
-    selection: req.selection ?? null,
     signal: ac.signal
   }).finally(() => {
     running.delete(req.requestId)
   })
   return { ok: true }
+}
+
+async function runChat(wc: WebContents, ctx: ChatRun): Promise<void> {
+  try {
+    if (ctx.mode === 'ask') await runAsk(wc, ctx)
+    else if (ctx.mode === 'edit') await runEdit(wc, ctx)
+    else await runAgent(wc, ctx)
+  } catch (err) {
+    emit(wc, ctx.requestId, {
+      type: 'error',
+      message: ctx.signal.aborted ? '停止しました' : err instanceof Error ? err.message : String(err)
+    })
+  }
+}
+
+/** いまのファイルを読んで答えるだけ。ツールなし、1回で終わる。 */
+async function runAsk(wc: WebContents, ctx: ChatRun): Promise<void> {
+  if (stopped(wc, ctx)) return
+  await complete(wc, ctx, { messages: llmMessages(ctx) })
+  if (stopped(wc, ctx)) return
+  emit(wc, ctx.requestId, { type: 'done' })
+}
+
+/** 1回の応答で propose_edit を1つ。失敗したらユーザーへ理由を返す。 */
+async function runEdit(wc: WebContents, ctx: ChatRun): Promise<void> {
+  if (stopped(wc, ctx)) return
+  const turn = await complete(wc, ctx, {
+    messages: llmMessages(ctx),
+    tools: schemasForTools(toolsForMode('edit')),
+    toolChoice: { type: 'function', function: { name: 'propose_edit' } }
+  })
+  if (stopped(wc, ctx)) return
+
+  const call = turn.toolCalls.find((item) => item.function.name === 'propose_edit')
+  if (!call) {
+    emit(wc, ctx.requestId, { type: 'error', message: editUnsupportedToolMessage() })
+    return
+  }
+
+  const result = await runOneTool(wc, ctx, call)
+  if (stopped(wc, ctx)) return
+  if (toolFailed(result)) {
+    emit(wc, ctx.requestId, { type: 'error', message: toolErrorMessage(result) })
+    return
+  }
+  emit(wc, ctx.requestId, { type: 'done' })
+}
+
+/** 開いているタブをツールで読み、提案を重ねる。ツールが返らなくなるか上限で止まる。 */
+async function runAgent(wc: WebContents, ctx: ChatRun): Promise<void> {
+  const messages = llmMessages(ctx)
+  const tools = schemasForTools(toolsForMode('agent'))
+
+  for (let step = 0; step < ctx.maxSteps; step++) {
+    if (stopped(wc, ctx)) return
+    const turn = await complete(wc, ctx, { messages, tools, toolChoice: 'auto' })
+    const decision = decideAgentTurn({
+      step,
+      maxSteps: ctx.maxSteps,
+      aborted: ctx.signal.aborted,
+      toolCallCount: turn.toolCalls.length
+    })
+    if (decision === 'abort') {
+      emit(wc, ctx.requestId, { type: 'error', message: '停止しました' })
+      return
+    }
+    if (decision === 'done') {
+      emit(wc, ctx.requestId, { type: 'done' })
+      return
+    }
+
+    messages.push({
+      role: 'assistant',
+      content: turn.content || null,
+      tool_calls: turn.toolCalls
+    })
+    for (const call of turn.toolCalls) {
+      const result = await runOneTool(wc, ctx, call)
+      messages.push({ role: 'tool', content: result, tool_call_id: call.id })
+      if (stopped(wc, ctx)) return
+    }
+    if (decision === 'run-tools-and-stop') {
+      emit(wc, ctx.requestId, { type: 'done' })
+      return
+    }
+  }
+
+  emit(wc, ctx.requestId, { type: 'done' })
+}
+
+async function complete(
+  wc: WebContents,
+  ctx: ChatRun,
+  input: {
+    messages: LlmMessage[]
+    tools?: unknown
+    toolChoice?: 'auto' | 'none' | { type: 'function'; function: { name: string } }
+  }
+): Promise<{ content: string; toolCalls: CompletedToolCall[] }> {
+  return streamChatCompletion({
+    providerId: ctx.providerId,
+    baseUrl: ctx.baseUrl,
+    apiKey: ctx.apiKey,
+    model: ctx.model,
+    temperature: ctx.temperature,
+    maxTokens: ctx.maxTokens,
+    messages: input.messages,
+    tools: input.tools,
+    toolChoice: input.toolChoice,
+    signal: ctx.signal,
+    onContent: (text) => emit(wc, ctx.requestId, { type: 'delta', text })
+  })
+}
+
+function llmMessages(ctx: ChatRun): LlmMessage[] {
+  return [
+    { role: 'system', content: systemPromptFor(ctx.mode) },
+    ...ctx.messages.map((m): LlmMessage => {
+      if (m.role === 'tool') {
+        return { role: 'tool', content: m.content, tool_call_id: m.toolCallId || 'tool' }
+      }
+      return { role: m.role, content: m.content }
+    })
+  ]
+}
+
+function toolRuntime(wc: WebContents, ctx: ChatRun): ToolRuntime {
+  return {
+    requestId: ctx.requestId,
+    activeTabId: ctx.activeTabId,
+    emit: (event) => emit(wc, ctx.requestId, event),
+    askRenderer: (req) => askTool(wc, ctx.requestId, req)
+  }
+}
+
+async function runOneTool(wc: WebContents, ctx: ChatRun, call: CompletedToolCall): Promise<string> {
+  return executeTool(toolRuntime(wc, ctx), call.function.name, call.function.arguments, call.id)
+}
+
+function toolFailed(result: string): boolean {
+  try {
+    const parsed = JSON.parse(result) as { error?: unknown }
+    return typeof parsed.error === 'string' && parsed.error.length > 0
+  } catch {
+    return false
+  }
+}
+
+function toolErrorMessage(result: string): string {
+  try {
+    const parsed = JSON.parse(result) as { error?: string }
+    if (typeof parsed.error === 'string' && parsed.error) return parsed.error
+  } catch {
+    /* raw */
+  }
+  return result
+}
+
+function stopped(wc: WebContents, ctx: ChatRun): boolean {
+  if (!ctx.signal.aborted) return false
+  emit(wc, ctx.requestId, { type: 'error', message: '停止しました' })
+  return true
 }
 
 function emit(wc: WebContents, requestId: string, event: AiStreamEvent): void {
@@ -100,198 +288,22 @@ function askTool(wc: WebContents, requestId: string, req: AiToolRequest): Promis
       pendingTools.delete(`${requestId}:${req.callId}`)
       reject(new Error('ツール応答がタイムアウトしました'))
     }, 15_000)
-    pendingTools.set(`${requestId}:${req.callId}`, (result) => {
-      clearTimeout(timer)
-      resolve(result)
+    pendingTools.set(`${requestId}:${req.callId}`, {
+      resolve: (result) => {
+        clearTimeout(timer)
+        resolve(result)
+      },
+      reject: (err) => {
+        clearTimeout(timer)
+        reject(err)
+      }
     })
     if (wc.isDestroyed()) {
+      pendingTools.delete(`${requestId}:${req.callId}`)
       clearTimeout(timer)
       reject(new Error('ウィンドウが閉じられました'))
       return
     }
     wc.send('ai:tool', { requestId, ...req })
   })
-}
-
-async function runLoop(
-  wc: WebContents,
-  ctx: {
-    requestId: string
-    mode: 'ask' | 'edit' | 'agent'
-    providerId: AiProviderId
-    baseUrl: string
-    apiKey: string
-    model: string
-    temperature: number
-    maxTokens: number
-    maxSteps: number
-    messages: { role: 'user' | 'assistant' | 'tool'; content: string; toolCallId?: string }[]
-    activeTabId: string | null
-    selection: { from: number; to: number; text: string } | null
-    signal: AbortSignal
-  }
-): Promise<void> {
-  const tools = ctx.mode === 'ask' ? undefined : AGENT_TOOLS
-    const toolChoice =
-      ctx.mode === 'edit'
-        ? { type: 'function' as const, function: { name: 'propose_edit' } }
-        : ctx.mode === 'agent'
-          ? ('auto' as const)
-          : undefined
-
-  const llmMessages: LlmMessage[] = [
-    { role: 'system', content: systemPrompt(ctx.mode, ctx.selection) },
-    ...ctx.messages.map((m): LlmMessage => {
-      if (m.role === 'tool') {
-        return { role: 'tool', content: m.content, tool_call_id: m.toolCallId || 'tool' }
-      }
-      return { role: m.role, content: m.content }
-    })
-  ]
-
-  try {
-    for (let step = 0; step < ctx.maxSteps; step++) {
-      if (ctx.signal.aborted) {
-        emit(wc, ctx.requestId, { type: 'error', message: '停止しました' })
-        return
-      }
-      const turn = await streamChatCompletion({
-        providerId: ctx.providerId,
-        baseUrl: ctx.baseUrl,
-        apiKey: ctx.apiKey,
-        model: ctx.model,
-        temperature: ctx.temperature,
-        maxTokens: ctx.maxTokens,
-        messages: llmMessages,
-        tools,
-        toolChoice: ctx.mode === 'edit' && step > 0 ? 'none' : toolChoice,
-        signal: ctx.signal,
-        onContent: (text) => emit(wc, ctx.requestId, { type: 'delta', text })
-      })
-
-      if (turn.content) {
-        llmMessages.push({ role: 'assistant', content: turn.content })
-      }
-
-      const hasTools = turn.toolCalls.length > 0
-      if (shouldStopAgentLoop({ step: step + 1, maxSteps: ctx.maxSteps, aborted: ctx.signal.aborted, hasToolCalls: hasTools })) {
-        if (ctx.mode === 'edit' && !hasTools && turn.content) {
-          emit(wc, ctx.requestId, {
-            type: 'error',
-            message: 'このモデルはツール呼び出しに対応していないようです。Agent 非対応の場合は Ask で確認するか、対応モデルに切り替えてください。'
-          })
-          return
-        }
-        emit(wc, ctx.requestId, { type: 'done' })
-        return
-      }
-
-      llmMessages.push({
-        role: 'assistant',
-        content: turn.content || null,
-        tool_calls: turn.toolCalls
-      })
-
-      for (const call of turn.toolCalls) {
-        const result = await runTool(wc, ctx, call.function.name, call.function.arguments, call.id)
-        llmMessages.push({ role: 'tool', content: result, tool_call_id: call.id })
-      }
-
-      if (ctx.mode === 'edit') {
-        emit(wc, ctx.requestId, { type: 'done' })
-        return
-      }
-    }
-    emit(wc, ctx.requestId, { type: 'done' })
-  } catch (err) {
-    if (ctx.signal.aborted) {
-      emit(wc, ctx.requestId, { type: 'error', message: '停止しました' })
-      return
-    }
-    emit(wc, ctx.requestId, { type: 'error', message: err instanceof Error ? err.message : String(err) })
-  }
-}
-
-async function runTool(
-  wc: WebContents,
-  ctx: {
-    requestId: string
-    activeTabId: string | null
-    signal: AbortSignal
-  },
-  name: string,
-  argsJson: string,
-  callId: string
-): Promise<string> {
-  if (name === 'list_open_tabs') {
-    emit(wc, ctx.requestId, { type: 'tool', name, detail: '開いているタブを確認' })
-    return askTool(wc, ctx.requestId, { callId, name: 'list_open_tabs' })
-  }
-  if (name === 'read_tab') {
-    let tabId = ctx.activeTabId ?? ''
-    try {
-      const parsed = JSON.parse(argsJson) as { tab_id?: string }
-      if (typeof parsed.tab_id === 'string') tabId = parsed.tab_id
-    } catch {
-      /* use active */
-    }
-    emit(wc, ctx.requestId, { type: 'tool', name, detail: `タブを読む: ${tabId || '(不明)'}` })
-    if (!tabId) return JSON.stringify({ error: 'tab_id がありません' })
-    return askTool(wc, ctx.requestId, { callId, name: 'read_tab', tabId })
-  }
-  if (name === 'propose_edit') {
-    let parsedJson: unknown = {}
-    try {
-      parsedJson = JSON.parse(argsJson) as unknown
-    } catch {
-      return JSON.stringify({ error: 'JSON を解析できません' })
-    }
-    const parsed = parseProposeEditArgs(parsedJson, ctx.activeTabId ?? '')
-    if ('error' in parsed) return JSON.stringify({ error: parsed.error })
-    emit(wc, ctx.requestId, { type: 'tool', name, detail: parsed.note || `変更案: ${parsed.tabId}` })
-    const snap = await askTool(wc, ctx.requestId, { callId: `${callId}:snap`, name: 'snapshot_tab', tabId: parsed.tabId })
-    let snapshot: { title?: string; content?: string } = {}
-    try {
-      snapshot = JSON.parse(snap) as { title?: string; content?: string }
-    } catch {
-      snapshot = {}
-    }
-    if (snapshot && 'error' in (snapshot as { error?: string })) {
-      return snap
-    }
-    const baseText = typeof snapshot.content === 'string' ? snapshot.content : ''
-    const from = parsed.from ?? 0
-    const to = parsed.to ?? 0
-    const proposal = {
-      tabId: parsed.tabId,
-      tabTitle: typeof snapshot.title === 'string' ? snapshot.title : '',
-      mode: parsed.mode,
-      text: parsed.text,
-      from: parsed.mode === 'replace_range' ? from : undefined,
-      to: parsed.mode === 'replace_range' ? to : undefined,
-      baseText,
-      rangeBase: parsed.mode === 'replace_range' ? baseText.slice(from, to) : undefined,
-      note: parsed.note
-    }
-    const messageId = randomUUID()
-    emit(wc, ctx.requestId, { type: 'proposal', messageId, note: parsed.note, proposal })
-    return JSON.stringify({
-      ok: true,
-      message: '提案をユーザーへ提示しました。未承認のため文書はまだ変わっていません。'
-    })
-  }
-  return JSON.stringify({ error: `未知のツール: ${name}` })
-}
-
-function systemPrompt(mode: 'ask' | 'edit' | 'agent', selection: { from: number; to: number; text: string } | null): string {
-  const selectHint = selection
-    ? `ユーザーは文字オフセット ${selection.from}–${selection.to} を選択しています。Edit では replace_range を優先してください。`
-    : '選択範囲はありません。必要ならファイル全体を replace_all してください。'
-  if (mode === 'ask') {
-    return 'あなたは Coterea の文書アシスタントです。質問に答え、要約や説明をします。文書は変更しません。差分や編集案の適用は提案しないでください。ユーザーの言語に合わせて答えてください。'
-  }
-  if (mode === 'edit') {
-    return `あなたは Coterea の編集アシスタントです。propose_edit をちょうど1回呼び、1つの変更案だけ出します。自分でファイルへ書き込んではいけません。${selectHint} 短い note で何を変えたか説明してください。`
-  }
-  return `あなたは Coterea の Agent です。開いているタブだけを list_open_tabs / read_tab で読み、変更は propose_edit で提案します。未承認の書き込みはしません。ターミナル・MCP・ディスク探索は禁止です。${selectHint} ユーザーの言語で短く状況を述べてください。`
 }

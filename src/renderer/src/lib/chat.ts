@@ -10,6 +10,7 @@ import {
   type ChatMode,
   type ChatThread
 } from '../../../shared/ai'
+import { buildChatMessages, type ActiveFileContext, type SelectionContext } from '../../../shared/chatMode'
 import { markDirty } from './collab'
 import { preloadEditor } from './editorReady'
 import { getActiveEditor } from './editorHandle'
@@ -156,7 +157,7 @@ export function setDraft(draft: string): void {
   patchActiveThread((t) => ({ ...t, draft }))
 }
 
-function selectionOfActive(): { from: number; to: number; text: string } | null {
+function selectionOfActive(): SelectionContext | null {
   const editor = getActiveEditor()
   const model = editor?.getModel()
   const sel = editor?.getSelection()
@@ -167,22 +168,19 @@ function selectionOfActive(): { from: number; to: number; text: string } | null 
   return { from, to, text: model.getValueInRange(sel) }
 }
 
-function historyForLlm(thread: ChatThread): { role: 'user' | 'assistant'; content: string }[] {
-  return thread.messages
-    .filter((m) => (m.role === 'user' || m.role === 'assistant') && !m.proposal && m.content)
-    .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }))
-}
-
-async function buildContext(): Promise<{ content: string; selection: { from: number; to: number; text: string } | null }> {
+async function snapshotWorkspace(): Promise<{
+  activeFile: ActiveFileContext | null
+  selection: SelectionContext | null
+}> {
   const { tabs, activeTabId } = useAppStore.getState()
   const tab = tabs.find((t) => t.id === activeTabId)
   const { getText } = await preloadEditor()
   const selection = selectionOfActive()
-  if (!tab || isVirtualTab(tab)) return { content: '[開いているファイルはありません]', selection: null }
-  const body = getText(tab.id)
-  let content = `[現在のファイル: ${tab.title}]\nid: ${tab.id}\nlanguage: ${tab.language}\n\n${body}`
-  if (selection) content += `\n\n[選択範囲]\n${selection.text}`
-  return { content, selection }
+  if (!tab || isVirtualTab(tab)) return { activeFile: null, selection: null }
+  return {
+    activeFile: { id: tab.id, title: tab.title, language: tab.language, body: getText(tab.id) },
+    selection
+  }
 }
 
 export async function sendChat(): Promise<void> {
@@ -224,7 +222,7 @@ export async function sendChat(): Promise<void> {
   streamBuf = { requestId, assistantId, text: '' }
   useAppStore.getState().setChatBusy(true, requestId)
 
-  const { content: context, selection } = await buildContext()
+  const { activeFile, selection } = await snapshotWorkspace()
   const live = activeThread()
   if (!live) {
     useAppStore.getState().setChatBusy(false, null)
@@ -234,11 +232,12 @@ export async function sendChat(): Promise<void> {
     requestId,
     mode: live.mode,
     activeTabId: useAppStore.getState().activeTabId,
-    selection,
-    messages: [
-      { role: 'user', content: context },
-      ...historyForLlm({ ...live, messages: live.messages.filter((m) => m.id !== assistantId) })
-    ]
+    messages: buildChatMessages({
+      mode: live.mode,
+      messages: live.messages.filter((m) => m.id !== assistantId),
+      activeFile,
+      selection
+    })
   })
   if (!result.ok) {
     patchActiveThread((t) => ({
@@ -312,6 +311,16 @@ function handleEvent(requestId: string, event: AiStreamEvent): void {
     return
   }
   if (event.type === 'error') {
+    if (streamBuf.requestId !== requestId || !streamBuf.assistantId) {
+      const assistantId = crypto.randomUUID()
+      streamBuf = { requestId, assistantId, text: '' }
+      appendMessage({
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        createdAt: Date.now()
+      })
+    }
     appendAssistantDelta(requestId, streamBuf.text ? `\n\n${event.message}` : event.message)
     useAppStore.getState().setChatBusy(false, null)
     persistSoon()

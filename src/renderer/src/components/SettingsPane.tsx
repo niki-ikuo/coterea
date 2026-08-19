@@ -352,6 +352,7 @@ export function SettingsPane(): React.JSX.Element {
                 disabled={!ready}
               />
             </label>
+            <p className="muted small">Ask / Edit は1回で終わります。この値は Agent のツール往復の上限です。</p>
             <p className="muted small">Key は端末内で暗号化して保存し、チャット画面には出しません。</p>
           </>
         )}

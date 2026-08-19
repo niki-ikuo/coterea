@@ -18,51 +18,6 @@ export type CompletedToolCall = {
   function: { name: string; arguments: string }
 }
 
-export const AGENT_TOOLS = [
-  {
-    type: 'function',
-    function: {
-      name: 'list_open_tabs',
-      description: 'List tabs currently open. Returns id, name, and language. Does not walk the disk.',
-      parameters: { type: 'object', properties: {}, additionalProperties: false }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'read_tab',
-      description: 'Read the current text of an open tab by id.',
-      parameters: {
-        type: 'object',
-        properties: { tab_id: { type: 'string' } },
-        required: ['tab_id'],
-        additionalProperties: false
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'propose_edit',
-      description:
-        'Propose a document change. The user must approve it. Use replace_all for the whole file or replace_range for [from, to) character offsets.',
-      parameters: {
-        type: 'object',
-        properties: {
-          tab_id: { type: 'string' },
-          mode: { type: 'string', enum: ['replace_all', 'replace_range'] },
-          text: { type: 'string' },
-          from: { type: 'integer' },
-          to: { type: 'integer' },
-          note: { type: 'string' }
-        },
-        required: ['tab_id', 'mode', 'text'],
-        additionalProperties: false
-      }
-    }
-  }
-] as const
-
 export type StreamCallbacks = {
   onContent: (text: string) => void
 }

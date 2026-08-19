@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { ChatMessageContent } from './ChatMessageContent'
 import { OverlayScroll } from './OverlayScroll'
 import { openSettingsTab } from '../lib/actions'
 import {
@@ -21,12 +22,7 @@ import {
 import { useAppStore } from '../store'
 import { diffLines, previewTexts } from '../../../shared/lineDiff'
 import type { ChatMessage, ChatMode, ProposedEdit } from '../../../shared/ai'
-
-const MODES: { id: ChatMode; label: string; title: string; placeholder: string }[] = [
-  { id: 'ask', label: 'Ask', title: 'このメッセージを Ask モードで送信（質問への回答のみ。文書は変わりません）', placeholder: 'いまの文書について質問する... (Enterで送信, Shift+Enterで改行)' },
-  { id: 'edit', label: 'Edit', title: 'このメッセージを Edit モードで送信（いまのファイルへの変更案を1つ提案）', placeholder: 'いまの文書の執筆・修正・整理を依頼... (Enterで送信, Shift+Enterで改行)' },
-  { id: 'agent', label: 'Agent', title: 'このメッセージを Agent モードで送信（開いているタブを読んで調査・変更を提案）', placeholder: '開いている文書を調査・説明... (Enterで送信, Shift+Enterで改行)' }
-]
+import { CHAT_MODES, chatModeUi } from '../../../shared/chatMode'
 
 export function RightPane(): React.JSX.Element {
   const chat = useAppStore((s) => s.chat)
@@ -126,7 +122,7 @@ export function RightPane(): React.JSX.Element {
             <textarea
               className="chat-input"
               value={thread.draft ?? ''}
-              placeholder={(MODES.find((m) => m.id === thread.mode) ?? MODES[0]).placeholder}
+              placeholder={chatModeUi(thread.mode).placeholder}
               rows={3}
               disabled={busy}
               onChange={(e) => setDraft(e.target.value)}
@@ -277,7 +273,7 @@ function ChatHistoryPicker(): React.JSX.Element {
 function ChatModePicker({ mode, busy }: { mode: ChatMode; busy: boolean }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
-  const active = MODES.find((item) => item.id === mode) ?? MODES[0]
+  const active = chatModeUi(mode)
 
   useEffect(() => {
     const onDown = (e: MouseEvent): void => {
@@ -314,7 +310,7 @@ function ChatModePicker({ mode, busy }: { mode: ChatMode; busy: boolean }): Reac
       </button>
       {open ? (
         <div className="chat-mode-menu" role="listbox" aria-label="送信モード">
-          {MODES.map((option) => {
+          {CHAT_MODES.map((option) => {
             const selected = option.id === mode
             return (
               <button
@@ -358,9 +354,9 @@ function ChatLog({ messages, busy }: { messages: ChatMessage[]; busy: boolean })
         <div className="chat-empty">
           <p>いま開いている文書について、質問したり書き換えを依頼できます</p>
           <p className="hint">
-            送信前に Ask / Edit / Agent を選べます。Ask は説明のみ（文書は変わりません）。Edit はいまのファイルへの変更案を1つ出します。Agent は開いているタブを読んで、複数の変更案を出せます
+            送信前にモードを選べます。{CHAT_MODES.map((item) => `${item.label} は${item.summary}`).join('。')}。
           </p>
-          <p className="hint">Ask / Edit では現在のファイルが、Agent では開いているタブが自動でコンテキストに入ります</p>
+          <p className="hint">Ask / Edit はいまのファイル本文を渡します。Agent は開いているタブをツールで読みます</p>
         </div>
       )}
       {messages.map((msg, index) => {
@@ -377,7 +373,7 @@ function ChatLog({ messages, busy }: { messages: ChatMessage[]; busy: boolean })
 
 function modeLabel(mode: ChatMode | undefined): string | null {
   if (!mode) return null
-  return MODES.find((item) => item.id === mode)?.label ?? mode
+  return chatModeUi(mode).label
 }
 
 function ChatBubble({
@@ -429,10 +425,7 @@ function ChatBubble({
         ) : null}
       </div>
       <div className="chat-content">
-        <p className="chat-text">
-          {msg.content || (isStreaming ? '' : '…')}
-          {isStreaming ? <span className="chat-streaming-cursor" aria-hidden /> : null}
-        </p>
+        <ChatMessageContent content={msg.content} isStreaming={isStreaming} />
       </div>
     </div>
   )
