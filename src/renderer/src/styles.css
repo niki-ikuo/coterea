@@ -2842,7 +2842,12 @@ label {
 }
 
 .agent-plan-item.status-in_progress .agent-plan-mark {
+  width: 1.2em;
   color: var(--accent);
+}
+
+.agent-plan-item.status-in_progress .animated-ellipsis {
+  vertical-align: baseline;
 }
 
 .agent-plan-item-text {

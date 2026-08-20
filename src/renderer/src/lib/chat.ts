@@ -13,6 +13,7 @@ import {
   buildChatMessages,
   defaultContextTabIds,
   resolveOpenTabId,
+  shouldPersistAfterProposalApply,
   type ActiveFileContext,
   type SelectionContext
 } from '../../../shared/chatMode'
@@ -33,7 +34,7 @@ import {
   type DraftPart,
   type SoftLineRef
 } from '../../../shared/chatContext'
-import { markDirty } from './collab'
+import { isCollabActive, markDirty, persistTab } from './collab'
 import { getTabDoc } from './docs'
 import { preloadEditor } from './editorReady'
 import { desiredTextAfterProposal } from '../../../shared/textOps'
@@ -856,6 +857,9 @@ export async function applyProposal(messageId: string, _force = false): Promise<
   const current = getText(proposal.tabId)
   applyDocumentText(proposal.tabId, desiredTextAfterProposal(current, proposal))
   markDirty(proposal.tabId)
+  if (shouldPersistAfterProposalApply(isCollabActive(), tab.path)) {
+    await persistTab(proposal.tabId)
+  }
   patchActiveThread((t) => ({
     ...t,
     messages: t.messages.map((m) => (m.id === messageId ? { ...m, proposalStatus: 'applied' } : m))

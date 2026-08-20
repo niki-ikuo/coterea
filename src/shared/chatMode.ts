@@ -319,6 +319,17 @@ export function editUnsupportedToolMessage(): string {
   return 'このモデルは編集ツールに対応していないようです。Ask で確認するか、ツール対応のモデルに切り替えてください。'
 }
 
+/**
+ * 承認した変更をディスクへ即時保存するか。
+ * 単独編集かつ実ファイルがあるときだけ。共同編集中はデバウンス自動保存に任せる。
+ */
+export function shouldPersistAfterProposalApply(
+  collabActive: boolean,
+  filePath: string | null | undefined
+): boolean {
+  return !collabActive && Boolean(filePath)
+}
+
 /** 送信時にカプセルから主タブとファイル一覧用の id を取り出す。 */
 export function tabIdsForCapsules(capsules: readonly ContextCapsule[]): string[] {
   const ids: string[] = []

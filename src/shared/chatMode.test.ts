@@ -9,6 +9,7 @@ import {
   maxStepsForMode,
   resolveOpenTabId,
   resolveProposeTabId,
+  shouldPersistAfterProposalApply,
   systemPromptFor,
   toolsForMode
 } from './chatMode'
@@ -198,6 +199,15 @@ describe('tab resolve', () => {
     expect(resolveOpenTabId({ requested: 'missing', tabs, activeTabId: 'uuid-1', fallbackToActive: false })).toBe(
       undefined
     )
+  })
+})
+
+describe('shouldPersistAfterProposalApply', () => {
+  it('単独編集の実ファイルだけ即時保存する', () => {
+    expect(shouldPersistAfterProposalApply(false, 'C:\\work\\notes.md')).toBe(true)
+    expect(shouldPersistAfterProposalApply(true, 'C:\\work\\notes.md')).toBe(false)
+    expect(shouldPersistAfterProposalApply(false, null)).toBe(false)
+    expect(shouldPersistAfterProposalApply(true, null)).toBe(false)
   })
 })
 

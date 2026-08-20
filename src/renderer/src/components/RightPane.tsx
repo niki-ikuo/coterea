@@ -882,16 +882,15 @@ function UserMessageParts({ parts }: { parts: DraftPart[] }): React.JSX.Element 
   )
 }
 
-function statusMark(status: AgentTodoItem['status']): string {
+function StatusMark({ status }: { status: AgentTodoItem['status'] }): React.JSX.Element {
+  if (status === 'in_progress') return <AnimatedEllipsis />
   switch (status) {
     case 'done':
-      return '✓'
+      return <>✓</>
     case 'cancelled':
-      return '–'
-    case 'in_progress':
-      return '…'
+      return <>–</>
     default:
-      return '○'
+      return <>○</>
   }
 }
 
@@ -923,7 +922,7 @@ function AgentPlanPanel({ plan }: { plan: AgentPlanState }): React.JSX.Element {
               title={`${todo.id}: ${todo.content}`}
             >
               <span className="agent-plan-mark" aria-hidden="true">
-                {statusMark(todo.status)}
+                <StatusMark status={todo.status} />
               </span>
               <span className="agent-plan-item-text">{todo.content}</span>
             </li>
