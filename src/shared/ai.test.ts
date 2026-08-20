@@ -4,6 +4,8 @@ import {
   cannotDeleteLastThread,
   classifyApplyCollision,
   completionsUrl,
+  emptyThread,
+  parseChatMode,
   parseProposeEditArgs,
   parseToolArgsJson,
   sanitizeChatHistory,
@@ -15,6 +17,17 @@ import { choiceDelta, mergeToolCallDeltas, parseSseBlock } from './openaiSse'
 describe('titleFromPrompt', () => {
   it('空白を畳んで切る', () => {
     expect(titleFromPrompt('  導入を\n短くして  ')).toBe('導入を 短くして')
+  })
+})
+
+describe('parseChatMode / emptyThread', () => {
+  it('不正な値は ask に落とす', () => {
+    expect(parseChatMode('nope')).toBe('ask')
+    expect(parseChatMode('edit')).toBe('edit')
+  })
+
+  it('emptyThread は指定モードを使う', () => {
+    expect(emptyThread('t1', 1, 'agent').mode).toBe('agent')
   })
 })
 

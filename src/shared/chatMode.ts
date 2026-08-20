@@ -4,6 +4,7 @@ import {
   type ChatMode,
   type ProposedEdit
 } from './ai'
+import type { ContextCapsule } from './chatContext'
 
 export type ActiveFileContext = {
   id: string
@@ -16,9 +17,13 @@ export type SelectionContext = {
   from: number
   to: number
   text: string
+  tabId?: string
+  title?: string
+  lineFrom?: number
+  lineTo?: number
 }
 
-export type ChatToolName = 'list_open_tabs' | 'read_tab' | 'propose_edit'
+export type ChatToolName = 'list_open_tabs' | 'read_tab' | 'propose_edit' | 'update_todo'
 
 export type ChatTabRef = {
   id: string
@@ -26,7 +31,7 @@ export type ChatTabRef = {
   path?: string | null
 }
 
-/** Edit はいまのファイル固定。Agent は指定タブ、なければアクティブ。 */
+/** Edit は添付コンテキストの主タブ固定。Agent は指定タブ、なければ主タブ。 */
 export function resolveProposeTabId(input: {
   mode: ChatMode
   requested: string
@@ -71,22 +76,22 @@ export const CHAT_MODES: ChatModeUi[] = [
     id: 'ask',
     label: 'Ask',
     title: 'このメッセージを Ask モードで送信（質問への回答のみ。文書は変わりません）',
-    placeholder: 'いまの文書について質問する... (Enterで送信, Shift+Enterで改行)',
-    summary: 'いまのファイルについて説明するだけ（文書は変わりません）'
+    placeholder: '文書について質問する... (Enterで送信, Shift+Enterで改行)',
+    summary: '添付またはいまのファイルについて説明するだけ（文書は変わりません）'
   },
   {
     id: 'edit',
     label: 'Edit',
-    title: 'このメッセージを Edit モードで送信（いまのファイルへの変更案を1つ提案）',
-    placeholder: 'いまの文書の執筆・修正・整理を依頼... (Enterで送信, Shift+Enterで改行)',
-    summary: 'いまのファイルへの変更案を1つ出す'
+    title: 'このメッセージを Edit モードで送信（添付またはいまのファイルへの変更案を1つ提案）',
+    placeholder: '文書の執筆・修正・整理を依頼... (Enterで送信, Shift+Enterで改行)',
+    summary: '添付またはいまのファイルへの変更案を1つ出す'
   },
   {
     id: 'agent',
     label: 'Agent',
-    title: 'このメッセージを Agent モードで送信（開いているタブを読んで調査・変更を提案）',
-    placeholder: '開いている文書を調査・説明... (Enterで送信, Shift+Enterで改行)',
-    summary: '開いているタブをツールで読み、複数の変更案を出せる'
+    title: 'このメッセージを Agent モードで送信（添付または開いている全タブを読んで調査・変更を提案）',
+    placeholder: '文書を調査・説明... (Enterで送信, Shift+Enterで改行)',
+    summary: '添付、なければ開いている全タブを渡し、複数の変更案を出せる'
   }
 ]
 
@@ -94,15 +99,30 @@ export function chatModeUi(mode: ChatMode): ChatModeUi {
   return CHAT_MODES.find((item) => item.id === mode) ?? CHAT_MODES[0]
 }
 
-/** Ask / Edit は本文を載せる。Agent はツールで読むので本文は載せない。 */
-export function includesActiveFileBody(mode: ChatMode): boolean {
-  return mode !== 'agent'
+/** Ask / Edit は常にファイル本文を載せる。Agent も対象ファイルがあれば本文を載せる。 */
+export function includesActiveFileBody(mode: ChatMode, hasAttachedFiles = true): boolean {
+  if (mode === 'agent') return hasAttachedFiles
+  return true
+}
+
+/**
+ * カプセルが無いときの対象タブ。
+ * Ask / Edit → カレントタブのみ。Agent → 開いている全ファイル。
+ */
+export function defaultContextTabIds(input: {
+  mode: ChatMode
+  openTabIds: readonly string[]
+  activeTabId: string | null
+}): string[] {
+  if (input.mode === 'agent') return [...input.openTabIds]
+  if (input.activeTabId && input.openTabIds.includes(input.activeTabId)) return [input.activeTabId]
+  return []
 }
 
 export function toolsForMode(mode: ChatMode): readonly ChatToolName[] {
   if (mode === 'ask') return []
   if (mode === 'edit') return ['propose_edit']
-  return ['list_open_tabs', 'read_tab', 'propose_edit']
+  return ['list_open_tabs', 'read_tab', 'propose_edit', 'update_todo']
 }
 
 /** Ask / Edit は LLM 1回。Agent だけ設定のステップ上限。 */
@@ -124,17 +144,20 @@ export function systemPromptFor(mode: ChatMode): string {
     return [
       'あなたは Coterea の編集アシスタントです。',
       'propose_edit をちょうど1回呼び、1つの変更案だけ出します。',
-      'tab_id は省略してください。対象はいまのファイルです。',
+      'tab_id は省略してください。対象は添付の主ファイル、なければいまのファイルです。',
       'list_open_tabs や read_tab は使いません。ファイル本文はユーザーメッセージにあります。',
       '自分でファイルへ書き込んではいけません。適用はユーザーが行います。',
-      '選択範囲が示されていれば replace_range を優先し、なければ replace_all を使います。',
+      '変更は可能な限り replace_range で最小範囲だけ置換してください。ファイル全体の replace_all は本当に全体が必要なときだけにしてください。',
       '短い note で何を変えたか説明してください。'
     ].join('')
   }
   return [
     'あなたは Coterea の Agent です。',
-    '開いているタブだけを list_open_tabs / read_tab で読み、変更は propose_edit で提案します。',
-    'ファイル全文はユーザーメッセージに載っていないので、必要なタブは必ず read_tab してください。',
+    'ユーザーメッセージに載っているファイル本文を優先して使ってください（添付、または開いている全タブ）。',
+    '足りないタブがあれば list_open_tabs / read_tab で読んでください。',
+    '複数依頼や長めのタスクは、先に update_todo で成果物単位（目安3〜5、上限8）に分割し、順番に進めます。',
+    '各 todo を in_progress → done と更新し、pending / in_progress が残る間は終了しないでください。',
+    '変更は propose_edit で提案します。tab_id には対象タブの id を指定してください。可能な限り replace_range で変更箇所だけを渡し、replace_all は避けてください。',
     '未承認の書き込みはしません。ターミナル・MCP・ディスク探索は禁止です。',
     '選択範囲が示されていれば、その範囲を優先して検討してください。',
     'ユーザーの言語で短く状況を述べてください。'
@@ -144,44 +167,82 @@ export function systemPromptFor(mode: ChatMode): string {
 export function formatCurrentUserMessage(input: {
   mode: ChatMode
   prompt: string
-  activeFile: ActiveFileContext | null
-  selection: SelectionContext | null
+  files?: ActiveFileContext[]
+  selections?: SelectionContext[]
+  /** 単一ファイル互換。files が空のときだけ使う */
+  activeFile?: ActiveFileContext | null
+  /** 単一選択互換。selections が空のときだけ使う */
+  selection?: SelectionContext | null
 }): string {
+  const files =
+    input.files && input.files.length > 0
+      ? input.files
+      : input.activeFile
+        ? [input.activeFile]
+        : []
+  const selections =
+    input.selections && input.selections.length > 0
+      ? input.selections
+      : input.selection
+        ? [input.selection]
+        : []
+
   const parts: string[] = []
-  if (includesActiveFileBody(input.mode)) {
-    parts.push(formatAskEditFile(input.activeFile))
+  if (includesActiveFileBody(input.mode, files.length > 0)) {
+    parts.push(formatAttachedFiles(files, input.mode === 'agent'))
+    if (input.mode === 'agent' && files.length > 0) {
+      parts.push(
+        [
+          '[補足]',
+          '上記のファイル本文はすでに載っています。他に必要なタブがあれば list_open_tabs / read_tab を使ってください。'
+        ].join('\n')
+      )
+    }
   } else {
-    parts.push(formatAgentWorkspace(input.activeFile))
+    parts.push(formatAgentWorkspaceEmpty())
   }
-  const selection = formatSelection(input.mode, input.selection)
-  if (selection) parts.push(selection)
+  for (const selection of selections) {
+    const block = formatSelection(input.mode, selection)
+    if (block) parts.push(block)
+  }
   parts.push(`[ユーザー]\n${input.prompt.trim()}`)
   return parts.join('\n\n')
 }
 
-function formatAskEditFile(file: ActiveFileContext | null): string {
-  if (!file) return '[開いているファイルはありません]'
-  return `[現在のファイル: ${file.title}]\nlanguage: ${file.language}\n\n${file.body}`
+function formatAttachedFiles(files: ActiveFileContext[], includeId: boolean): string {
+  if (files.length === 0) return '[添付ファイルはありません]'
+  const block = (file: ActiveFileContext, label: string): string => {
+    const meta = includeId
+      ? `id: ${file.id}\nlanguage: ${file.language}`
+      : `language: ${file.language}`
+    return `${label}\n${meta}\n\n${file.body}`
+  }
+  if (files.length === 1) {
+    return block(files[0], `[添付ファイル: ${files[0].title}]`)
+  }
+  return files.map((file, index) => block(file, `[添付ファイル ${index + 1}: ${file.title}]`)).join('\n\n')
 }
 
-function formatAgentWorkspace(file: ActiveFileContext | null): string {
-  if (!file) {
-    return [
-      '[作業対象]',
-      '開いているファイルはありません。',
-      'タブがあれば list_open_tabs で確認し、本文は read_tab で読んでください。'
-    ].join('\n')
-  }
+function formatAgentWorkspaceEmpty(): string {
   return [
     '[作業対象]',
-    `アクティブタブ: ${file.title} (id: ${file.id}, language: ${file.language})`,
-    '開いているタブの本文は list_open_tabs / read_tab で読んでください。ファイル全文はここに載せていません。'
+    '添付はありません。タブがあれば list_open_tabs で確認し、本文は read_tab で読んでください。'
   ].join('\n')
 }
 
-function formatSelection(mode: ChatMode, selection: SelectionContext | null): string | null {
+function formatSelection(mode: ChatMode, selection: SelectionContext): string | null {
   if (!selection) return null
-  const header = `[選択範囲]\n文字オフセット ${selection.from}–${selection.to}`
+  const where =
+    selection.title || selection.tabId
+      ? `（${selection.title || selection.tabId}${
+          selection.lineFrom != null && selection.lineTo != null
+            ? selection.lineFrom === selection.lineTo
+              ? `:${selection.lineFrom}`
+              : `:${selection.lineFrom}-${selection.lineTo}`
+            : ''
+        }）`
+      : ''
+  const header = `[選択範囲${where}]\n文字オフセット ${selection.from}–${selection.to}`
   if (mode === 'edit') {
     return `${header}\nreplace_range を優先してください。\n${selection.text}`
   }
@@ -192,14 +253,16 @@ function formatSelection(mode: ChatMode, selection: SelectionContext | null): st
 }
 
 /**
- * 次ターンの LLM に渡す会話。最新のユーザー発言だけに、その時点のファイル／作業対象を載せる。
+ * 次ターンの LLM に渡す会話。最新のユーザー発言だけに、その時点の添付コンテキストを載せる。
  * 提案カードは短い要約にして残し、空のプレースホルダやツールログは送らない。
  */
 export function buildChatMessages(input: {
   mode: ChatMode
   messages: Pick<ChatMessage, 'role' | 'content' | 'proposal' | 'proposalStatus'>[]
-  activeFile: ActiveFileContext | null
-  selection: SelectionContext | null
+  files?: ActiveFileContext[]
+  selections?: SelectionContext[]
+  activeFile?: ActiveFileContext | null
+  selection?: SelectionContext | null
 }): { role: 'user' | 'assistant'; content: string }[] {
   const turns: { role: 'user' | 'assistant'; content: string }[] = []
   for (const msg of input.messages) {
@@ -213,6 +276,8 @@ export function buildChatMessages(input: {
     lastUser.content = formatCurrentUserMessage({
       mode: input.mode,
       prompt: lastUser.content,
+      files: input.files,
+      selections: input.selections,
       activeFile: input.activeFile,
       selection: input.selection
     })
@@ -252,4 +317,13 @@ export function decideAgentTurn(input: {
 
 export function editUnsupportedToolMessage(): string {
   return 'このモデルは編集ツールに対応していないようです。Ask で確認するか、ツール対応のモデルに切り替えてください。'
+}
+
+/** 送信時にカプセルから主タブとファイル一覧用の id を取り出す。 */
+export function tabIdsForCapsules(capsules: readonly ContextCapsule[]): string[] {
+  const ids: string[] = []
+  for (const capsule of capsules) {
+    if (!ids.includes(capsule.tabId)) ids.push(capsule.tabId)
+  }
+  return ids
 }

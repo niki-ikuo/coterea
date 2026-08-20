@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { CollabStatus, PeerInfo } from '../../shared/types'
 import type { EncodingId } from '../../shared/encoding'
 import { DEFAULT_THEME, type ThemeId } from '../../shared/theme'
-import { defaultChatHistory, type ChatHistoryFile } from '../../shared/ai'
+import { defaultChatHistory, type ChatHistoryFile, type ChatMode } from '../../shared/ai'
 import { emptyLlmUsage, type LlmUsageStats } from '../../shared/llmUsage'
 
 export type MdView = 'edit' | 'split' | 'preview'
@@ -65,6 +65,7 @@ type AppState = {
   collabPaneVisible: boolean
   minimapEnabled: boolean
   mdOutlineEnabled: boolean
+  chatMode: ChatMode
   line: number
   column: number
   joinOpen: boolean
@@ -83,6 +84,7 @@ type AppState = {
   setCollabPaneVisible: (v: boolean) => void
   setMinimapEnabled: (v: boolean) => void
   setMdOutlineEnabled: (v: boolean) => void
+  setChatMode: (mode: ChatMode) => void
   setJoinOpen: (v: boolean) => void
   patchCollab: (patch: Partial<CollabState>) => void
   setChat: (chat: ChatHistoryFile | ((prev: ChatHistoryFile) => ChatHistoryFile)) => void
@@ -119,6 +121,7 @@ export const useAppStore = create<AppState>((set) => ({
   collabPaneVisible: false,
   minimapEnabled: false,
   mdOutlineEnabled: true,
+  chatMode: 'ask',
   line: 1,
   column: 1,
   joinOpen: false,
@@ -138,6 +141,7 @@ export const useAppStore = create<AppState>((set) => ({
   setCollabPaneVisible: (collabPaneVisible) => set({ collabPaneVisible }),
   setMinimapEnabled: (minimapEnabled) => set({ minimapEnabled }),
   setMdOutlineEnabled: (mdOutlineEnabled) => set({ mdOutlineEnabled }),
+  setChatMode: (chatMode) => set({ chatMode }),
   setJoinOpen: (joinOpen) => set({ joinOpen }),
   patchCollab: (patch) => set((s) => ({ collab: { ...s.collab, ...patch } })),
   setChat: (chat) => set((s) => ({ chat: typeof chat === 'function' ? chat(s.chat) : chat })),

@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
+import { AnimatedEllipsis, AnimatedStatus } from './AnimatedEllipsis'
 import { ChatMarkdown } from './ChatMarkdown'
 import { getCodeLabel, parseChatSegments, splitStreamingContent } from '../lib/chatMarkdown'
 
@@ -9,7 +10,7 @@ function CodeAccordion({
   streaming = false
 }: {
   label: string
-  meta: string
+  meta: ReactNode
   code: string
   streaming?: boolean
 }): React.JSX.Element {
@@ -47,8 +48,14 @@ export function ChatMessageContent({
   isStreaming?: boolean
 }): React.JSX.Element | null {
   if (!content) {
-    if (isStreaming) return <span className="chat-streaming-cursor" aria-hidden />
-    return <p className="chat-md-p">…</p>
+    if (isStreaming) {
+      return (
+        <span className="chat-streaming">
+          <AnimatedEllipsis />
+        </span>
+      )
+    }
+    return null
   }
 
   const { complete, streamingCode } = isStreaming
@@ -75,7 +82,7 @@ export function ChatMessageContent({
       {streamingCode ? (
         <CodeAccordion
           label={getCodeLabel(streamingCode.language, streamingCode.code).label}
-          meta="生成中…"
+          meta={<AnimatedStatus label="生成中" />}
           code={streamingCode.code}
           streaming
         />

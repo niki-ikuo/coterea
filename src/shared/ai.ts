@@ -1,7 +1,12 @@
+import { sanitizeContextCapsules, sanitizeDraftParts, migrateLegacyDraft, emptyDraftParts, type ContextCapsule, type DraftPart } from './chatContext'
+import { sanitizeAgentPlan, type AgentPlanState } from './agentPlan'
+
 export const AI_DEFAULT_MODEL = 'gpt-4o-mini'
 export const AI_DEFAULT_TEMPERATURE = 0.2
 export const AI_DEFAULT_MAX_TOKENS = 8192
 export const AI_DEFAULT_MAX_STEPS = 12
+
+export type { ContextCapsule, DraftPart }
 
 export type ChatMode = 'ask' | 'edit' | 'agent'
 
@@ -106,6 +111,12 @@ export interface ChatMessage {
   toolName?: string
   proposal?: ProposedEdit
   proposalStatus?: ProposalStatus
+  /** ユーザー発言に添付したコンテキスト（表示用） */
+  context?: ContextCapsule[]
+  /** 文中カプセル付きの本文（表示用）。無ければ content + context */
+  parts?: DraftPart[]
+  /** Agent のタスク計画（update_todo） */
+  agentPlan?: AgentPlanState
 }
 
 export interface ChatThread {
@@ -113,7 +124,12 @@ export interface ChatThread {
   title: string
   mode: ChatMode
   messages: ChatMessage[]
+  /** @deprecated draftParts へ移行。読み込み時のみ互換 */
   draft?: string
+  /** @deprecated draftParts へ移行。読み込み時のみ互換 */
+  draftContext?: ContextCapsule[]
+  /** 入力欄の文中テキストとカプセル */
+  draftParts?: DraftPart[]
   updatedAt: number
   /** false のときタブからは外し、履歴一覧から再開できる */
   open?: boolean
@@ -139,6 +155,10 @@ export function providerById(id: string | undefined): AiProviderPreset {
 
 export function parseProviderId(raw: unknown): AiProviderId {
   return AI_PROVIDERS.some((item) => item.id === raw) ? (raw as AiProviderId) : 'openai'
+}
+
+export function parseChatMode(raw: unknown, fallback: ChatMode = 'ask'): ChatMode {
+  return raw === 'ask' || raw === 'edit' || raw === 'agent' ? raw : fallback
 }
 
 export function clampTemperature(value: unknown, fallback = AI_DEFAULT_TEMPERATURE): number {
@@ -172,13 +192,13 @@ export function titleFromPrompt(text: string): string {
   return line.length > 28 ? `${line.slice(0, 28)}…` : line
 }
 
-export function emptyThread(id: string, now = Date.now()): ChatThread {
+export function emptyThread(id: string, now = Date.now(), mode: ChatMode = 'ask'): ChatThread {
   return {
     id,
     title: '新しい会話',
-    mode: 'ask',
+    mode: parseChatMode(mode),
     messages: [],
-    draft: '',
+    draftParts: emptyDraftParts(),
     updatedAt: now,
     open: true
   }
@@ -222,14 +242,19 @@ function sanitizeThread(raw: unknown): ChatThread | null {
   if (!raw || typeof raw !== 'object') return null
   const data = raw as Partial<ChatThread>
   if (typeof data.id !== 'string' || !data.id) return null
-  const mode = data.mode === 'edit' || data.mode === 'agent' || data.mode === 'ask' ? data.mode : 'ask'
+  const mode = parseChatMode(data.mode)
   const messages = Array.isArray(data.messages) ? data.messages.map(sanitizeMessage).filter((m) => m !== null) : []
+  const fromParts = sanitizeDraftParts(data.draftParts)
+  const draftContext = sanitizeContextCapsules(data.draftContext)
+  const draftParts =
+    fromParts ??
+    migrateLegacyDraft(typeof data.draft === 'string' ? data.draft : '', draftContext)
   return {
     id: data.id,
     title: typeof data.title === 'string' && data.title.trim() ? data.title : '新しい会話',
     mode,
     messages,
-    draft: typeof data.draft === 'string' ? data.draft : '',
+    draftParts,
     updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : Date.now(),
     open: data.open !== false
   }
@@ -240,6 +265,8 @@ function sanitizeMessage(raw: unknown): ChatMessage | null {
   const data = raw as Partial<ChatMessage>
   if (typeof data.id !== 'string' || !data.id) return null
   if (data.role !== 'user' && data.role !== 'assistant' && data.role !== 'tool') return null
+  const context = sanitizeContextCapsules(data.context)
+  const parts = sanitizeDraftParts(data.parts) ?? undefined
   return {
     id: data.id,
     role: data.role,
@@ -256,7 +283,10 @@ function sanitizeMessage(raw: unknown): ChatMessage | null {
         ? data.proposalStatus
         : data.proposal
           ? 'pending'
-          : undefined
+          : undefined,
+    context: context.length > 0 ? context : undefined,
+    parts: parts && parts.some((p) => p.type === 'capsule' || (p.type === 'text' && p.text)) ? parts : undefined,
+    agentPlan: sanitizeAgentPlan(data.agentPlan)
   }
 }
 

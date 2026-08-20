@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   activateTabAt,
   closeAllTabs,
@@ -7,11 +7,20 @@ import {
   createUntitled,
   cycleTab,
   reloadTabFromDisk,
+  reorderTab,
   saveTab,
   setMdScrollSync,
   setMdView
 } from '../lib/actions'
+import { addFileTabToChat, copyFileTabChatRef } from '../lib/chat'
 import { isMarkdownLanguage } from '../lib/fileMeta'
+import { writeChatContextDrag } from '../../../shared/chatContext'
+import {
+  dropInsertIndex,
+  dropSide,
+  EDITOR_TAB_REORDER_MIME
+} from '../../../shared/tabOrder'
+import { scrollActiveTabIntoView } from '../lib/tabScroll'
 import { isSettingsTab, useAppStore, type MdView, type TabInfo } from '../store'
 
 const MD_MODES: { id: MdView; label: string }[] = [
@@ -66,23 +75,96 @@ export function TabBar(): React.JSX.Element | null {
   const setActiveTabId = useAppStore((s) => s.setActiveTabId)
   const active = tabs.find((t) => t.id === activeTabId)
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; tabId: string } | null>(null)
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [dropHint, setDropHint] = useState<{ id: string; side: 'before' | 'after' } | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const tabsKey = tabs.map((t) => t.id).join('|')
+
+  useLayoutEffect(() => {
+    if (!activeTabId || tabs.length === 0) return
+    scrollActiveTabIntoView(scrollRef.current, '.tab.active')
+  }, [activeTabId, tabsKey, tabs.length])
 
   if (tabs.length === 0) return null
+
+  const clearDrag = (): void => {
+    setDraggingId(null)
+    setDropHint(null)
+  }
+
+  const acceptReorder = (fromId: string, overId: string, clientX: number, el: HTMLElement): void => {
+    const from = tabs.findIndex((t) => t.id === fromId)
+    const over = tabs.findIndex((t) => t.id === overId)
+    if (from < 0 || over < 0 || fromId === overId) return
+    const to = dropInsertIndex(from, over, clientX, el.getBoundingClientRect())
+    if (to === from) return
+    reorderTab(fromId, to)
+  }
 
   return (
     <>
       <div className="tabbar">
-        <div className="tabbar-scroll" role="tablist">
+        <div
+          className="tabbar-scroll"
+          role="tablist"
+          ref={scrollRef}
+          onDragLeave={(e) => {
+            if (e.currentTarget.contains(e.relatedTarget as Node)) return
+            setDropHint(null)
+          }}
+        >
           {tabs.map((tab) => {
             const glyph = glyphFor(tab)
             const selected = tab.id === activeTabId
+            const hint = dropHint?.id === tab.id ? dropHint.side : null
             return (
               <div
                 key={tab.id}
-                className={`tab${selected ? ' active' : ''}${tab.isDirty ? ' is-dirty' : ''}`}
+                className={`tab${selected ? ' active' : ''}${tab.isDirty ? ' is-dirty' : ''}${
+                  draggingId === tab.id ? ' is-dragging' : ''
+                }${hint === 'before' ? ' drop-before' : ''}${hint === 'after' ? ' drop-after' : ''}`}
                 role="tab"
                 aria-selected={selected}
                 tabIndex={selected ? 0 : -1}
+                draggable
+                onDragStart={(e) => {
+                  setDraggingId(tab.id)
+                  e.dataTransfer.setData(EDITOR_TAB_REORDER_MIME, tab.id)
+                  e.dataTransfer.effectAllowed = 'copyMove'
+                  if (!isSettingsTab(tab)) {
+                    writeChatContextDrag(e.dataTransfer, {
+                      kind: 'file',
+                      tabId: tab.id,
+                      title: tab.title,
+                      path: tab.path,
+                      language: tab.language
+                    })
+                  }
+                  e.dataTransfer.setDragImage(
+                    e.currentTarget,
+                    Math.min(40, e.currentTarget.clientWidth / 2),
+                    e.currentTarget.clientHeight / 2
+                  )
+                }}
+                onDragEnd={clearDrag}
+                onDragOver={(e) => {
+                  if (![...e.dataTransfer.types].includes(EDITOR_TAB_REORDER_MIME)) return
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                  if (draggingId === tab.id) {
+                    setDropHint(null)
+                    return
+                  }
+                  setDropHint({ id: tab.id, side: dropSide(e.clientX, e.currentTarget.getBoundingClientRect()) })
+                }}
+                onDrop={(e) => {
+                  const fromId = e.dataTransfer.getData(EDITOR_TAB_REORDER_MIME)
+                  if (!fromId) return
+                  e.preventDefault()
+                  e.stopPropagation()
+                  acceptReorder(fromId, tab.id, e.clientX, e.currentTarget)
+                  clearDrag()
+                }}
                 onClick={() => setActiveTabId(tab.id)}
                 onContextMenu={(e) => {
                   e.preventDefault()
@@ -224,6 +306,9 @@ function TabContextMenu({
     void fn()
   }
 
+  const tab = useAppStore.getState().tabs.find((t) => t.id === tabId)
+  const canAttachToChat = Boolean(tab && !isSettingsTab(tab))
+
   return (
     <div
       ref={ref}
@@ -231,6 +316,32 @@ function TabContextMenu({
       style={{ left: x, top: y }}
       role="menu"
     >
+      {canAttachToChat ? (
+        <>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() =>
+              run(() => {
+                addFileTabToChat(tabId)
+                return Promise.resolve()
+              })
+            }
+          >
+            チャットに追加
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() =>
+              run(() => copyFileTabChatRef(tabId).then(() => undefined))
+            }
+          >
+            チャット参照をコピー
+          </button>
+          <div style={{ height: 4 }} />
+        </>
+      ) : null}
       <button
         type="button"
         role="menuitem"

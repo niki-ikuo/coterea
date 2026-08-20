@@ -10,6 +10,7 @@ import { isUnsupportedOpen, type UnsupportedOpen } from '../../../shared/openPol
 import { SETTINGS_TAB_ID } from '../../../shared/session'
 import { persistSessionNow } from './workspaceSession'
 import { requestSettingsSection, revertOpenSettings, saveOpenSettings, type SettingsSection } from './settingsTab'
+import { moveById } from '../../../shared/tabOrder'
 
 function newId(): string {
   return crypto.randomUUID()
@@ -422,6 +423,11 @@ export function cycleTab(delta: number): void {
 export function activateTabAt(index: number): void {
   const tab = useAppStore.getState().tabs[index]
   if (tab) useAppStore.getState().setActiveTabId(tab.id)
+}
+
+/** エディタタブを toIndex（移動後の位置）へ並べ替える。 */
+export function reorderTab(tabId: string, toIndex: number): void {
+  useAppStore.getState().setTabs((tabs) => moveById(tabs, tabId, toIndex))
 }
 
 export async function saveActive(saveAs = false): Promise<void> {

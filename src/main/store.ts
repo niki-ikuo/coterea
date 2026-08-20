@@ -14,7 +14,8 @@ import {
   clampMaxTokens,
   clampTemperature,
   parseProviderId,
-  providerById
+  providerById,
+  parseChatMode
 } from '../shared/ai'
 import { normalizeResetDate, normalizeResetDayOfMonth } from '../shared/llmUsage'
 
@@ -41,6 +42,7 @@ function defaultStore(): Store {
         temperature: AI_DEFAULT_TEMPERATURE,
         maxTokens: AI_DEFAULT_MAX_TOKENS,
         maxAgentSteps: AI_DEFAULT_MAX_STEPS,
+        chatMode: 'ask',
         llmUsageAutoResetDay: undefined,
         llmUsageAutoResetDate: undefined
       },
@@ -88,6 +90,7 @@ export class AppStore {
         temperature: clampTemperature(raw.temperature),
         maxTokens: clampMaxTokens(raw.maxTokens),
         maxAgentSteps: clampMaxSteps(raw.maxAgentSteps),
+        chatMode: parseChatMode(raw.chatMode),
         llmUsageAutoResetDay:
           normalizeResetDayOfMonth(raw.llmUsageAutoResetDay) ??
           normalizeResetDayOfMonth(typeof raw.llmUsageAutoResetDate === 'string' ? raw.llmUsageAutoResetDate.slice(8, 10) : undefined) ??
@@ -135,6 +138,7 @@ export class AppStore {
       ...(patch.temperature != null ? { temperature: clampTemperature(patch.temperature) } : {}),
       ...(patch.maxTokens != null ? { maxTokens: clampMaxTokens(patch.maxTokens) } : {}),
       ...(patch.maxAgentSteps != null ? { maxAgentSteps: clampMaxSteps(patch.maxAgentSteps) } : {}),
+      ...(patch.chatMode != null ? { chatMode: parseChatMode(patch.chatMode) } : {}),
       ...(patch.llmUsageAutoResetDay != null
         ? { llmUsageAutoResetDay: normalizeResetDayOfMonth(patch.llmUsageAutoResetDay) ?? undefined }
         : {}),

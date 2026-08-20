@@ -10,10 +10,12 @@ import type {
 import type { LlmUsageStats } from './llmUsage'
 import type { EncodingId } from './encoding'
 import type { ChatHistoryFile, ChatMode, ProposedEdit } from './ai'
+import type { AgentPlanState } from './agentPlan'
 
 export type AiStreamEvent =
   | { type: 'delta'; text: string }
   | { type: 'tool'; name: string; detail: string }
+  | { type: 'plan'; plan: AgentPlanState }
   | { type: 'proposal'; messageId: string; note?: string; proposal: ProposedEdit }
   | { type: 'done' }
   | { type: 'error'; message: string }

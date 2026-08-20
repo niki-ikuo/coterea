@@ -11,6 +11,7 @@ import { applyUiTheme } from './lib/uiTheme'
 import { getActiveEditor } from './lib/editorHandle'
 import { isSettingsTab, isVirtualTab, useAppStore } from './store'
 import { parseTheme } from '../../shared/theme'
+import { parseChatMode } from '../../shared/ai'
 import { attachSessionPersist, enableSessionPersist, restoreSession } from './lib/workspaceSession'
 import { SettingsPane } from './components/SettingsPane'
 
@@ -29,6 +30,7 @@ function bootApp(): Promise<void> {
         useAppStore.getState().setCollabPaneVisible(s.collabPaneVisible === true)
         useAppStore.getState().setMinimapEnabled(s.minimapEnabled === true)
         useAppStore.getState().setMdOutlineEnabled(s.mdOutlineEnabled !== false)
+        useAppStore.getState().setChatMode(parseChatMode(s.chatMode))
         const theme = parseTheme(s.theme)
         useAppStore.getState().setTheme(theme)
         applyUiTheme(theme)
@@ -79,6 +81,7 @@ export function App(): React.JSX.Element {
       useAppStore.getState().setCollabPaneVisible(next.collabPaneVisible === true)
       useAppStore.getState().setMinimapEnabled(next.minimapEnabled === true)
       useAppStore.getState().setMdOutlineEnabled(next.mdOutlineEnabled !== false)
+      useAppStore.getState().setChatMode(parseChatMode(next.chatMode))
       const applied = parseTheme(next.theme)
       useAppStore.getState().setTheme(applied)
       applyUiTheme(applied)

@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import { parseProposeEditArgs, parseToolArgsJson, type ChatMode } from '../../shared/ai'
 import type { AiStreamEvent, AiToolRequest } from '../../shared/api'
 import { resolveProposeTabId, type ChatToolName } from '../../shared/chatMode'
+import { applyUpdateTodo, type AgentPlanState } from '../../shared/agentPlan'
 
 const LIST_OPEN_TABS = {
   type: 'function',
@@ -31,7 +32,7 @@ const PROPOSE_EDIT = {
   function: {
     name: 'propose_edit',
     description:
-      'Propose a document change. The user must approve it. Omit tab_id to target the current file. Use replace_all for the whole file or replace_range for [from, to) character offsets.',
+      'Propose a document change. The user must approve it. Omit tab_id to target the attached primary file. Use replace_all for the whole file or replace_range for [from, to) character offsets.',
     parameters: {
       type: 'object',
       properties: {
@@ -48,9 +49,42 @@ const PROPOSE_EDIT = {
   }
 }
 
+
+const UPDATE_TODO = {
+  type: 'function',
+  function: {
+    name: 'update_todo',
+    description:
+      'Maintain a short outcome-level checklist for multi-step work. Call early for non-trivial asks (about 3–5 verifiable deliverables; hard max 8). Update statuses as you progress. Do not finish while any item is pending or in_progress. Pass todos as { id, content, status }. status is pending | in_progress | done | cancelled. Default replaces the full list; set merge=true to patch by id.',
+    parameters: {
+      type: 'object',
+      properties: {
+        todos: {
+          type: 'array',
+          description: 'Checklist items. Prefer 3–5 outcome-level items (hard max 8).',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              content: { type: 'string' },
+              status: { type: 'string', enum: ['pending', 'in_progress', 'done', 'cancelled'] }
+            },
+            required: ['id', 'content', 'status']
+          }
+        },
+        merge: {
+          type: 'boolean',
+          description: 'If true, merge/update by id; otherwise replace the whole list'
+        }
+      },
+      required: ['todos']
+    }
+  }
+}
+
 export function schemasForTools(names: readonly ChatToolName[]): unknown[] | undefined {
   if (names.length === 0) return undefined
-  const all = { list_open_tabs: LIST_OPEN_TABS, read_tab: READ_TAB, propose_edit: PROPOSE_EDIT }
+  const all = { list_open_tabs: LIST_OPEN_TABS, read_tab: READ_TAB, propose_edit: PROPOSE_EDIT, update_todo: UPDATE_TODO }
   return names.map((name) => all[name])
 }
 
@@ -58,6 +92,7 @@ export type ToolRuntime = {
   requestId: string
   mode: ChatMode
   activeTabId: string | null
+  plan: AgentPlanState
   emit: (event: AiStreamEvent) => void
   askRenderer: (req: AiToolRequest) => Promise<string>
 }
@@ -81,7 +116,24 @@ export async function executeTool(
   if (name === 'propose_edit') {
     return proposeEdit(rt, argsJson, callId)
   }
+  if (name === 'update_todo') {
+    return updateTodo(rt, argsJson)
+  }
   return JSON.stringify({ error: `未知のツール: ${name}` })
+}
+
+function updateTodo(rt: ToolRuntime, argsJson: string): string {
+  const parsed = parseToolArgsJson(argsJson)
+  if (parsed == null || typeof parsed !== 'object') {
+    return JSON.stringify({ error: 'JSON を解析できません' })
+  }
+  const result = applyUpdateTodo(rt.plan, parsed as Record<string, unknown>)
+  if (!result.ok) {
+    rt.emit({ type: 'tool', name: 'update_todo', detail: result.summary })
+    return JSON.stringify({ error: result.content })
+  }
+  rt.emit({ type: 'plan', plan: { todos: rt.plan.todos.map((t) => ({ ...t })) } })
+  return JSON.stringify({ ok: true, message: result.content })
 }
 
 function readTabId(argsJson: string): string {
@@ -91,7 +143,7 @@ function readTabId(argsJson: string): string {
 
 async function proposeEdit(rt: ToolRuntime, argsJson: string, callId: string): Promise<string> {
   if (rt.mode === 'edit' && !rt.activeTabId) {
-    return JSON.stringify({ error: '開いているファイルがありません' })
+    return JSON.stringify({ error: '添付ファイルがありません' })
   }
   const parsedJson = parseToolArgsJson(argsJson)
   if (parsedJson == null) return JSON.stringify({ error: 'JSON を解析できません' })

@@ -17,6 +17,7 @@ import {
   YJS_TEXT_KEY
 } from '../../../shared/yjsCanonical'
 import { languageFromPath } from './fileMeta'
+import { computeTextOps, mapCursorOffset, matchDocumentEol, type TextOp } from '../../../shared/textOps'
 
 export type TabDoc = {
   id: string
@@ -270,6 +271,122 @@ export function applyLocalEdit(id: string, from: number, to: number, text: strin
     tab.model.setValue(next)
   }
   return true
+}
+
+/**
+ * AI 提案など、before→after の文書更新を差分オペで Y.Text に載せる。
+ * 全文 delete+insert はしない。未変更アイテムを残し、適用後にローカルカーソルを写す。
+ */
+export function applyDocumentText(id: string, nextText: string): boolean {
+  const tab = docs.get(id)
+  if (!tab) return false
+  const current = tab.ytext.toString()
+  nextText = matchDocumentEol(current, nextText)
+  if (current === nextText) return true
+  const ops = computeTextOps(current, nextText)
+  if (ops.length === 0) return true
+  const origin = 'ai-apply'
+  tab.undo.addTrackedOrigin(origin)
+  const saved = captureCursors(tab)
+
+  withPreservedViewports(tab.editors, () => {
+    const throughMonaco = tryApplyOpsThroughMonaco(tab, current, ops)
+    if (!throughMonaco) applyTextOpsToYText(tab, ops, origin)
+
+    const applied = tab.ytext.toString()
+    if (applied !== nextText) {
+      const leftover = computeTextOps(applied, nextText)
+      if (leftover.length > 0 && !isFullDocumentReplace(leftover, applied.length)) {
+        applyTextOpsToYText(tab, leftover, origin)
+      }
+    }
+  })
+
+  const finalText = tab.ytext.toString()
+  if (!tab.binding && tab.model.getValue() !== finalText) {
+    tab.model.setValue(finalText)
+  }
+  restoreCursors(tab, saved, ops)
+  return true
+}
+
+function isFullDocumentReplace(ops: readonly TextOp[], length: number): boolean {
+  if (length <= 0) return false
+  return ops.some((op) => op.index === 0 && op.deleteCount >= length)
+}
+
+type SavedCursor = {
+  editor: monaco.editor.IStandaloneCodeEditor
+  start: number
+  end: number
+  direction: monaco.SelectionDirection
+}
+
+function captureCursors(tab: TabDoc): SavedCursor[] {
+  const saved: SavedCursor[] = []
+  for (const editor of tab.editors) {
+    const sel = editor.getSelection()
+    if (!sel) continue
+    const model = editor.getModel() ?? tab.model
+    saved.push({
+      editor,
+      start: model.getOffsetAt(sel.getStartPosition()),
+      end: model.getOffsetAt(sel.getEndPosition()),
+      direction: sel.getDirection()
+    })
+  }
+  return saved
+}
+
+function restoreCursors(tab: TabDoc, saved: readonly SavedCursor[], ops: readonly TextOp[]): void {
+  const model = tab.model
+  const max = model.getValueLength()
+  for (const item of saved) {
+    if (item.editor.getModel() !== model) continue
+    const start = Math.min(max, mapCursorOffset(item.start, ops))
+    const end = Math.min(max, mapCursorOffset(item.end, ops))
+    const p1 = model.getPositionAt(start)
+    const p2 = model.getPositionAt(end)
+    item.editor.setSelection(
+      monaco.Selection.createWithDirection(
+        p1.lineNumber,
+        p1.column,
+        p2.lineNumber,
+        p2.column,
+        item.direction
+      )
+    )
+  }
+}
+
+function tryApplyOpsThroughMonaco(tab: TabDoc, current: string, ops: readonly TextOp[]): boolean {
+  const editor = [...tab.editors][0]
+  if (!tab.binding || !editor || editor.getModel() !== tab.model) return false
+  if (tab.model.getValue() !== current) return false
+  const edits = ops.map((op) => {
+    const start = tab.model.getPositionAt(op.index)
+    const end = tab.model.getPositionAt(op.index + op.deleteCount)
+    return {
+      range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column),
+      text: op.insert,
+      forceMoveMarkers: false
+    }
+  })
+  return editor.executeEdits('ai-apply', edits)
+}
+
+function applyTextOpsToYText(
+  tab: TabDoc,
+  ops: readonly TextOp[],
+  origin: string
+): void {
+  const sorted = [...ops].sort((a, b) => b.index - a.index || b.deleteCount - a.deleteCount)
+  tab.ydoc.transact(() => {
+    for (const op of sorted) {
+      if (op.deleteCount > 0) tab.ytext.delete(op.index, op.deleteCount)
+      if (op.insert) tab.ytext.insert(op.index, op.insert)
+    }
+  }, origin)
 }
 
 export function replaceText(id: string, content: string): void {

@@ -51,6 +51,8 @@ export interface AppSettings {
   temperature?: number
   maxTokens?: number
   maxAgentSteps?: number
+  /** 最後に選んだ Ask / Edit / Agent。新規会話の初期モードにも使う */
+  chatMode?: import('./ai').ChatMode
   llmUsageAutoResetDay?: number
   llmUsageAutoResetDate?: string
 }

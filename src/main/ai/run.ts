@@ -16,6 +16,19 @@ import {
   systemPromptFor,
   toolsForMode
 } from '../../shared/chatMode'
+import {
+  countActiveTodos,
+  countOpenTodos,
+  createAgentPlanState,
+  extractUserPrompt,
+  formatInitialTodoPlanNudge,
+  formatOpenTodosNudge,
+  formatOversizedTodoPlanNudge,
+  shouldNudgeMissingTodoPlan,
+  shouldNudgeOversizedTodoPlan,
+  shouldPlanFirstAgentTask,
+  type AgentPlanState
+} from '../../shared/agentPlan'
 import type { AppSettings } from '../../shared/types'
 import type { LlmUsageDelta } from '../../shared/llmUsage'
 import { resolveBaseUrl, streamChatCompletion, type CompletedToolCall, type LlmMessage } from './openaiCompat'
@@ -42,6 +55,10 @@ type ChatRun = {
   signal: AbortSignal
   recordUsage?: (delta: LlmUsageDelta) => Promise<void>
 }
+
+const MAX_OPEN_TODO_NUDGES = 2
+const MAX_MISSING_TODO_PLAN_NUDGES = 2
+const MAX_OVERSIZED_TODO_PLAN_NUDGES = 1
 
 const running = new Map<string, AbortController>()
 const pendingTools = new Map<string, { resolve: (result: string) => void; reject: (err: Error) => void }>()
@@ -132,7 +149,7 @@ async function runChat(wc: WebContents, ctx: ChatRun): Promise<void> {
   }
 }
 
-/** いまのファイルを読んで答えるだけ。ツールなし、1回で終わる。 */
+/** 添付コンテキストを読んで答えるだけ。ツールなし、1回で終わる。 */
 async function runAsk(wc: WebContents, ctx: ChatRun): Promise<void> {
   if (stopped(wc, ctx)) return
   await complete(wc, ctx, { messages: llmMessages(ctx) })
@@ -165,10 +182,22 @@ async function runEdit(wc: WebContents, ctx: ChatRun): Promise<void> {
   emit(wc, ctx.requestId, { type: 'done' })
 }
 
-/** 開いているタブをツールで読み、提案を重ねる。ツールが返らなくなるか上限で止まる。 */
+﻿/** 開いているタブをツールで読み、提案を重ねる。複数依頼は update_todo で分割して順に進める。 */
 async function runAgent(wc: WebContents, ctx: ChatRun): Promise<void> {
   const messages = llmMessages(ctx)
   const tools = schemasForTools(toolsForMode('agent'))
+  const plan = createAgentPlanState()
+  const latestUser = [...ctx.messages].reverse().find((m) => m.role === 'user')
+  const userText = latestUser ? extractUserPrompt(latestUser.content) : ''
+
+  if (countOpenTodos(plan) === 0 && shouldPlanFirstAgentTask(userText)) {
+    messages.push({ role: 'user', content: formatInitialTodoPlanNudge() })
+  }
+
+  let updateTodoCalledThisRun = false
+  let openTodoNudges = 0
+  let missingTodoPlanNudges = 0
+  let oversizedTodoPlanNudges = 0
 
   for (let step = 0; step < ctx.maxSteps; step++) {
     if (stopped(wc, ctx)) return
@@ -184,6 +213,22 @@ async function runAgent(wc: WebContents, ctx: ChatRun): Promise<void> {
       return
     }
     if (decision === 'done') {
+      const nudge = agentFinishNudge({
+        plan,
+        userText,
+        updateTodoCalledThisRun,
+        openTodoNudges,
+        missingTodoPlanNudges,
+        oversizedTodoPlanNudges
+      })
+      if (nudge) {
+        if (nudge.kind === 'missing') missingTodoPlanNudges++
+        else if (nudge.kind === 'oversized') oversizedTodoPlanNudges++
+        else openTodoNudges++
+        messages.push({ role: 'assistant', content: turn.content || '' })
+        messages.push({ role: 'user', content: nudge.content })
+        continue
+      }
       emit(wc, ctx.requestId, { type: 'done' })
       return
     }
@@ -194,7 +239,8 @@ async function runAgent(wc: WebContents, ctx: ChatRun): Promise<void> {
       tool_calls: turn.toolCalls
     })
     for (const call of turn.toolCalls) {
-      const result = await runOneTool(wc, ctx, call)
+      if (call.function.name === 'update_todo') updateTodoCalledThisRun = true
+      const result = await runOneTool(wc, ctx, call, plan)
       messages.push({ role: 'tool', content: result, tool_call_id: call.id })
       if (stopped(wc, ctx)) return
     }
@@ -205,6 +251,40 @@ async function runAgent(wc: WebContents, ctx: ChatRun): Promise<void> {
   }
 
   emit(wc, ctx.requestId, { type: 'done' })
+}
+
+function agentFinishNudge(input: {
+  plan: AgentPlanState
+  userText: string
+  updateTodoCalledThisRun: boolean
+  openTodoNudges: number
+  missingTodoPlanNudges: number
+  oversizedTodoPlanNudges: number
+}): { kind: 'missing' | 'oversized' | 'open'; content: string } | null {
+  const needsTodoPlan = shouldNudgeMissingTodoPlan({
+    userText: input.userText,
+    openTodoCount: countOpenTodos(input.plan),
+    updateTodoCalledThisRun: input.updateTodoCalledThisRun,
+    alreadyNudging: input.missingTodoPlanNudges > 0
+  })
+  if (needsTodoPlan && input.missingTodoPlanNudges < MAX_MISSING_TODO_PLAN_NUDGES) {
+    return { kind: 'missing', content: formatInitialTodoPlanNudge() }
+  }
+
+  const needsOversized = shouldNudgeOversizedTodoPlan({
+    activeTodoCount: countActiveTodos(input.plan),
+    updateTodoCalledThisRun: input.updateTodoCalledThisRun,
+    alreadyNudging: input.oversizedTodoPlanNudges > 0
+  })
+  if (needsOversized && input.oversizedTodoPlanNudges < MAX_OVERSIZED_TODO_PLAN_NUDGES) {
+    return { kind: 'oversized', content: formatOversizedTodoPlanNudge(countActiveTodos(input.plan)) }
+  }
+
+  if (input.openTodoNudges < MAX_OPEN_TODO_NUDGES) {
+    const open = formatOpenTodosNudge(input.plan)
+    if (open) return { kind: 'open', content: open }
+  }
+  return null
 }
 
 async function complete(
@@ -261,18 +341,24 @@ function llmMessages(ctx: ChatRun): LlmMessage[] {
   ]
 }
 
-function toolRuntime(wc: WebContents, ctx: ChatRun): ToolRuntime {
+function toolRuntime(wc: WebContents, ctx: ChatRun, plan: AgentPlanState): ToolRuntime {
   return {
     requestId: ctx.requestId,
     mode: ctx.mode,
     activeTabId: ctx.activeTabId,
+    plan,
     emit: (event) => emit(wc, ctx.requestId, event),
     askRenderer: (req) => askTool(wc, ctx.requestId, req)
   }
 }
 
-async function runOneTool(wc: WebContents, ctx: ChatRun, call: CompletedToolCall): Promise<string> {
-  return executeTool(toolRuntime(wc, ctx), call.function.name, call.function.arguments, call.id)
+async function runOneTool(
+  wc: WebContents,
+  ctx: ChatRun,
+  call: CompletedToolCall,
+  plan: AgentPlanState = createAgentPlanState()
+): Promise<string> {
+  return executeTool(toolRuntime(wc, ctx, plan), call.function.name, call.function.arguments, call.id)
 }
 
 function toolFailed(result: string): boolean {
