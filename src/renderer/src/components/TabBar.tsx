@@ -65,8 +65,21 @@ const GLYPH: Record<string, { mark: string; color: string }> = {
 }
 
 function glyphFor(tab: TabInfo): { mark: string; color: string } {
-  if (isSettingsTab(tab)) return { mark: '設', color: '#7c6f64' }
   return GLYPH[tab.language] ?? { mark: '·', color: '#8a8a8a' }
+}
+
+function SettingsTabIcon(): React.JSX.Element {
+  return (
+    <svg className="tab-icon-svg" viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden>
+      <path
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinejoin="round"
+        d="M6.55 2h2.9l.28 1.38c.38.12.73.3 1.05.52l1.32-.55 1.45 1.45-.55 1.32c.22.32.4.67.52 1.05L14 6.55v2.9l-1.38.28c-.12.38-.3.73-.52 1.05l.55 1.32-1.45 1.45-1.32-.55a4.7 4.7 0 0 1-1.05.52L9.45 14h-2.9l-.28-1.38a4.7 4.7 0 0 1-1.05-.52l-1.32.55-1.45-1.45.55-1.32a4.7 4.7 0 0 1-.52-1.05L2 9.45v-2.9l1.38-.28c.12-.38.3-.73.52-1.05l-.55-1.32 1.45-1.45 1.32.55c.32-.22.67-.4 1.05-.52L6.55 2z"
+      />
+      <circle cx="8" cy="8" r="2.15" stroke="currentColor" strokeWidth="1.25" />
+    </svg>
+  )
 }
 
 export function TabBar(): React.JSX.Element | null {
@@ -114,7 +127,8 @@ export function TabBar(): React.JSX.Element | null {
           }}
         >
           {tabs.map((tab) => {
-            const glyph = glyphFor(tab)
+            const settings = isSettingsTab(tab)
+            const glyph = settings ? null : glyphFor(tab)
             const selected = tab.id === activeTabId
             const hint = dropHint?.id === tab.id ? dropHint.side : null
             return (
@@ -131,7 +145,7 @@ export function TabBar(): React.JSX.Element | null {
                   setDraggingId(tab.id)
                   e.dataTransfer.setData(EDITOR_TAB_REORDER_MIME, tab.id)
                   e.dataTransfer.effectAllowed = 'copyMove'
-                  if (!isSettingsTab(tab)) {
+                  if (!settings) {
                     writeChatContextDrag(e.dataTransfer, {
                       kind: 'file',
                       tabId: tab.id,
@@ -219,8 +233,8 @@ export function TabBar(): React.JSX.Element | null {
                   }
                 }}
               >
-                <span className="tab-icon" style={{ color: glyph.color }} aria-hidden>
-                  {glyph.mark}
+                <span className="tab-icon" style={glyph ? { color: glyph.color } : undefined} aria-hidden>
+                  {settings ? <SettingsTabIcon /> : glyph?.mark}
                 </span>
                 <span className="tab-title" title={tab.path ?? tab.title}>
                   {tab.title}

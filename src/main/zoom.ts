@@ -1,4 +1,4 @@
-import type { BrowserWindow, Input } from 'electron'
+import { BrowserWindow, ipcMain, type Input } from 'electron'
 import { TITLEBAR_HEIGHT } from '../shared/theme'
 
 const MIN_LEVEL = -6
@@ -7,6 +7,7 @@ const STEP = 0.5
 
 let lastAt = 0
 let lastAction: ZoomAction | null = null
+let wheelIpcAttached = false
 
 export type ZoomAction = 'in' | 'out' | 'reset'
 
@@ -30,6 +31,20 @@ export function attachZoomShortcuts(win: BrowserWindow): void {
     event.preventDefault()
     applyZoom(win, action)
   })
+  // Chromium may emit this for Ctrl+wheel outside editors that capture wheel.
+  win.webContents.on('zoom-changed', (_event, direction) => {
+    applyZoom(win, direction === 'in' ? 'in' : 'out')
+  })
+  if (!wheelIpcAttached) {
+    wheelIpcAttached = true
+    // Preload captures Ctrl+wheel (needed over Monaco, which preventDefaults wheel).
+    ipcMain.on('zoom:wheel', (event, deltaY: unknown) => {
+      if (typeof deltaY !== 'number' || !Number.isFinite(deltaY) || deltaY === 0) return
+      const target = BrowserWindow.fromWebContents(event.sender)
+      if (!target) return
+      applyZoom(target, deltaY < 0 ? 'in' : 'out')
+    })
+  }
 }
 
 function applyZoom(win: BrowserWindow, action: ZoomAction): void {

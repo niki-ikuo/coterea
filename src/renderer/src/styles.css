@@ -420,14 +420,22 @@ button:focus-visible {
 }
 
 .tab-icon {
+  display: grid;
+  place-items: center;
   flex: 0 0 auto;
   width: 16px;
+  height: 16px;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: -0.04em;
   line-height: 1;
   text-align: center;
   font-family: "Segoe UI", Consolas, monospace;
+  color: var(--muted);
+}
+
+.tab-icon-svg {
+  display: block;
 }
 
 .tab-title {

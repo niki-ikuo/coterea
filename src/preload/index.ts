@@ -184,4 +184,14 @@ const api = {
 
 contextBridge.exposeInMainWorld('coterea', api)
 
+window.addEventListener(
+  'wheel',
+  (event) => {
+    if (!event.ctrlKey) return
+    event.preventDefault()
+    ipcRenderer.send('zoom:wheel', event.deltaY)
+  },
+  { passive: false, capture: true }
+)
+
 export type CotereaApi = typeof api

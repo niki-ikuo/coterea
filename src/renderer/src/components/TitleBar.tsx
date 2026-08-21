@@ -86,6 +86,23 @@ export function TitleBar(): React.JSX.Element {
         <button
           type="button"
           className="titlebar-icon-btn"
+          title="設定"
+          aria-label="設定"
+          onClick={() => openSettingsTab()}
+        >
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden>
+            <path
+              stroke="currentColor"
+              strokeWidth="1.25"
+              strokeLinejoin="round"
+              d="M6.55 2h2.9l.28 1.38c.38.12.73.3 1.05.52l1.32-.55 1.45 1.45-.55 1.32c.22.32.4.67.52 1.05L14 6.55v2.9l-1.38.28c-.12.38-.3.73-.52 1.05l.55 1.32-1.45 1.45-1.32-.55a4.7 4.7 0 0 1-1.05.52L9.45 14h-2.9l-.28-1.38a4.7 4.7 0 0 1-1.05-.52l-1.32.55-1.45-1.45.55-1.32a4.7 4.7 0 0 1-.52-1.05L2 9.45v-2.9l1.38-.28c.12-.38.3-.73.52-1.05l-.55-1.32 1.45-1.45 1.32.55c.32-.22.67-.4 1.05-.52L6.55 2z"
+            />
+            <circle cx="8" cy="8" r="2.15" stroke="currentColor" strokeWidth="1.25" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="titlebar-icon-btn"
           title={aiPaneOpen ? 'AIパネルを隠す' : 'AIパネルを表示'}
           aria-label={aiPaneOpen ? 'AIパネルを隠す' : 'AIパネルを表示'}
           aria-pressed={aiPaneOpen}
@@ -119,23 +136,6 @@ export function TitleBar(): React.JSX.Element {
               <path d="M10 2.25v11.5" stroke="currentColor" strokeWidth="1.25" />
             </svg>
           )}
-        </button>
-        <button
-          type="button"
-          className="titlebar-icon-btn"
-          title="設定"
-          aria-label="設定"
-          onClick={() => openSettingsTab()}
-        >
-          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden>
-            <path
-              stroke="currentColor"
-              strokeWidth="1.25"
-              strokeLinejoin="round"
-              d="M6.55 2h2.9l.28 1.38c.38.12.73.3 1.05.52l1.32-.55 1.45 1.45-.55 1.32c.22.32.4.67.52 1.05L14 6.55v2.9l-1.38.28c-.12.38-.3.73-.52 1.05l.55 1.32-1.45 1.45-1.32-.55a4.7 4.7 0 0 1-1.05.52L9.45 14h-2.9l-.28-1.38a4.7 4.7 0 0 1-1.05-.52l-1.32.55-1.45-1.45.55-1.32a4.7 4.7 0 0 1-.52-1.05L2 9.45v-2.9l1.38-.28c.12-.38.3-.73.52-1.05l-.55-1.32 1.45-1.45 1.32.55c.32-.22.67-.4 1.05-.52L6.55 2z"
-            />
-            <circle cx="8" cy="8" r="2.15" stroke="currentColor" strokeWidth="1.25" />
-          </svg>
         </button>
       </div>
       </header>
