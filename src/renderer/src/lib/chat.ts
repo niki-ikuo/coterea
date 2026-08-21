@@ -896,10 +896,10 @@ export function attachAiListeners(): () => void {
   }
 }
 
-function commitProposalApply(
+async function commitProposalApply(
   messageId: string,
   tabId: string,
-  tabPath: string | undefined,
+  tabPath: string | null | undefined,
   nextText: string,
   applyDocumentText: (id: string, text: string) => void
 ): Promise<void> {
@@ -913,7 +913,7 @@ function commitProposalApply(
     messages: t.messages.map((m) => (m.id === messageId ? { ...m, proposalStatus: 'applied' } : m))
   }))
   persistSoon()
-  return persist
+  await persist
 }
 
 /**
