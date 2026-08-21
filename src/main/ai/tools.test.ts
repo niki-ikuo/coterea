@@ -87,3 +87,17 @@ describe('update_todo', () => {
     expect(plan?.type === 'plan' && plan.plan.todos[0].content).toBe('導入を短くする')
   })
 })
+
+describe('read_tab', () => {
+  it('from/to を Renderer へ渡す', async () => {
+    const { rt, asked, events } = runtime({ mode: 'agent', activeTabId: 'tab-1' })
+    await executeTool(
+      rt,
+      'read_tab',
+      JSON.stringify({ tab_id: 'tab-2', from: 10, to: 40 }),
+      'c-read'
+    )
+    expect(asked).toEqual([{ callId: 'c-read', name: 'read_tab', tabId: 'tab-2', from: 10, to: 40 }])
+    expect(events.some((e) => e.type === 'tool' && e.detail.includes('10–40'))).toBe(true)
+  })
+})

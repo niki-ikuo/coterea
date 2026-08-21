@@ -17,10 +17,15 @@ const READ_TAB = {
   type: 'function',
   function: {
     name: 'read_tab',
-    description: 'Read the current text of an open tab by id.',
+    description:
+      'Read text of an open tab by id. Optional from/to are half-open character offsets [from, to). Omit both to read from the start up to the app size limit. Prefer ranges for long documents.',
     parameters: {
       type: 'object',
-      properties: { tab_id: { type: 'string' } },
+      properties: {
+        tab_id: { type: 'string' },
+        from: { type: 'integer', description: 'Start offset (inclusive). Default 0.' },
+        to: { type: 'integer', description: 'End offset (exclusive). Default end of file or size limit.' }
+      },
       required: ['tab_id'],
       additionalProperties: false
     }
@@ -111,10 +116,21 @@ export async function executeTool(
     return rt.askRenderer({ callId, name: 'list_open_tabs' })
   }
   if (name === 'read_tab') {
-    const tabId = readTabId(argsJson) || rt.activeTabId || ''
-    rt.emit({ type: 'tool', name, detail: `タブを読む: ${tabId || '(不明)'}` })
+    const range = parseReadTabArgs(argsJson)
+    const tabId = range.tabId || rt.activeTabId || ''
+    const rangeLabel =
+      range.from != null || range.to != null
+        ? ` [${range.from ?? 0}${range.to != null ? `–${range.to}` : '–'}]`
+        : ''
+    rt.emit({ type: 'tool', name, detail: `タブを読む: ${tabId || '(不明)'}${rangeLabel}` })
     if (!tabId) return JSON.stringify({ error: 'tab_id がありません' })
-    return rt.askRenderer({ callId, name: 'read_tab', tabId })
+    return rt.askRenderer({
+      callId,
+      name: 'read_tab',
+      tabId,
+      from: range.from,
+      to: range.to
+    })
   }
   if (name === 'propose_edit') {
     return proposeEdit(rt, argsJson, callId)
@@ -139,9 +155,17 @@ function updateTodo(rt: ToolRuntime, argsJson: string): string {
   return JSON.stringify({ ok: true, message: result.content })
 }
 
-function readTabId(argsJson: string): string {
-  const parsed = parseToolArgsJson(argsJson) as { tab_id?: string } | null
-  return parsed && typeof parsed.tab_id === 'string' ? parsed.tab_id : ''
+function parseReadTabArgs(argsJson: string): { tabId: string; from?: number; to?: number } {
+  const parsed = parseToolArgsJson(argsJson) as {
+    tab_id?: string
+    from?: number
+    to?: number
+  } | null
+  if (!parsed || typeof parsed !== 'object') return { tabId: '' }
+  const tabId = typeof parsed.tab_id === 'string' ? parsed.tab_id : ''
+  const from = typeof parsed.from === 'number' && Number.isFinite(parsed.from) ? Math.floor(parsed.from) : undefined
+  const to = typeof parsed.to === 'number' && Number.isFinite(parsed.to) ? Math.floor(parsed.to) : undefined
+  return { tabId, from, to }
 }
 
 async function proposeEdit(rt: ToolRuntime, argsJson: string, callId: string): Promise<string> {

@@ -22,7 +22,7 @@ export type AiStreamEvent =
 
 export type AiToolRequest =
   | { callId: string; name: 'list_open_tabs' }
-  | { callId: string; name: 'read_tab'; tabId: string }
+  | { callId: string; name: 'read_tab'; tabId: string; from?: number; to?: number }
   | { callId: string; name: 'snapshot_tab'; tabId: string }
 
 export interface AiChatRequest {

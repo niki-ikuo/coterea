@@ -672,7 +672,7 @@ function ChatLog({ messages, busy }: { messages: ChatMessage[]; busy: boolean })
           <p className="hint">
             送信前にモードを選べます。{CHAT_MODES.map((item) => `${item.label} は${item.summary}`).join('。')}。
           </p>
-          <p className="hint">カプセル未添付なら Ask / Edit はカレントタブ、Agent は開いている全ファイルを使います</p>
+          <p className="hint">カプセル未添付なら Ask / Edit / Agent ともカレントタブ。Agent は他タブを一覧だけ添え、本文は必要時に読みます</p>
         </div>
       )}
       {turns.map((turn) => {

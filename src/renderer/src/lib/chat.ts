@@ -16,8 +16,16 @@ import {
   resolveOpenTabId,
   shouldPersistAfterProposalApply,
   type ActiveFileContext,
+  type OpenTabCatalogEntry,
   type SelectionContext
 } from '../../../shared/chatMode'
+import {
+  AI_CONTEXT_FILE_CHARS,
+  clipContextBodies,
+  clipSelectionText,
+  clipText,
+  withClipNotice
+} from '../../../shared/aiContext'
 import {
   capsuleFromDrag,
   capsulesFromDraftParts,
@@ -471,10 +479,11 @@ async function resolveAttachedContext(capsules: readonly ContextCapsule[]): Prom
       lineFrom = start.lineNumber
       lineTo = end.lineNumber
     }
+    const clippedSel = clipSelectionText(text)
     selections.push({
       from,
       to,
-      text,
+      text: withClipNotice(clippedSel),
       tabId: tab.id,
       title: shortContextPath(tab.path, tab.title),
       lineFrom,
@@ -492,12 +501,33 @@ async function resolveAttachedContext(capsules: readonly ContextCapsule[]): Prom
   }
 
   return {
-    files,
+    files: clipFileContexts(files),
     selections,
     primaryTabId: primaryTabIdFromCapsules(
       capsules.filter((c) => tabs.some((t) => t.id === c.tabId && !isVirtualTab(t)))
     )
   }
+}
+
+function clipFileContexts(files: ActiveFileContext[]): ActiveFileContext[] {
+  const clipped = clipContextBodies(files.map((f) => f.body))
+  return files.map((file, index) => ({
+    ...file,
+    body: withClipNotice(clipped[index]!)
+  }))
+}
+
+async function buildOpenTabCatalog(): Promise<OpenTabCatalogEntry[]> {
+  const { tabs } = useAppStore.getState()
+  const { getText } = await preloadEditor()
+  return tabs
+    .filter((t) => !isVirtualTab(t))
+    .map((t) => ({
+      id: t.id,
+      title: shortContextPath(t.path, t.title),
+      language: t.language,
+      chars: getText(t.id).length
+    }))
 }
 
 function selectionOfActive(): SelectionContext | null {
@@ -508,16 +538,17 @@ function selectionOfActive(): SelectionContext | null {
   const from = model.getOffsetAt(sel.getStartPosition())
   const to = model.getOffsetAt(sel.getEndPosition())
   if (to <= from) return null
+  const clipped = clipSelectionText(model.getValueInRange(sel))
   return {
     from,
     to,
-    text: model.getValueInRange(sel),
+    text: withClipNotice(clipped),
     lineFrom: sel.startLineNumber,
     lineTo: sel.endLineNumber
   }
 }
 
-/** カプセルが無いときの既定コンテキスト（Ask/Edit=カレント、Agent=全ファイル）。 */
+/** カプセルが無いときの既定コンテキスト（全モード=カレント。Agent は別途タブ一覧）。 */
 async function resolveDefaultContext(mode: ChatMode): Promise<{
   files: ActiveFileContext[]
   selections: SelectionContext[]
@@ -533,34 +564,30 @@ async function resolveDefaultContext(mode: ChatMode): Promise<{
       activeTabId
     })
   )
-  const files: ActiveFileContext[] = openFiles
-    .filter((t) => targetIds.has(t.id))
-    .map((t) => ({
-      id: t.id,
-      title: shortContextPath(t.path, t.title),
-      language: t.language,
-      body: getText(t.id)
-    }))
+  const files: ActiveFileContext[] = clipFileContexts(
+    openFiles
+      .filter((t) => targetIds.has(t.id))
+      .map((t) => ({
+        id: t.id,
+        title: shortContextPath(t.path, t.title),
+        language: t.language,
+        body: getText(t.id)
+      }))
+  )
 
   const selections: SelectionContext[] = []
-  if (mode !== 'agent') {
-    const active = openFiles.find((t) => t.id === activeTabId)
-    const selection = selectionOfActive()
-    if (active && selection) {
-      selections.push({
-        ...selection,
-        tabId: active.id,
-        title: shortContextPath(active.path, active.title)
-      })
-    }
+  const active = openFiles.find((t) => t.id === activeTabId)
+  const selection = selectionOfActive()
+  if (active && selection && targetIds.has(active.id)) {
+    selections.push({
+      ...selection,
+      tabId: active.id,
+      title: shortContextPath(active.path, active.title)
+    })
   }
 
   const primaryTabId =
-    mode === 'agent'
-      ? activeTabId && targetIds.has(activeTabId)
-        ? activeTabId
-        : (files[0]?.id ?? null)
-      : (files[0]?.id ?? null)
+    activeTabId && targetIds.has(activeTabId) ? activeTabId : (files[0]?.id ?? null)
 
   return { files, selections, primaryTabId }
 }
@@ -572,9 +599,11 @@ async function resolveChatContext(
   files: ActiveFileContext[]
   selections: SelectionContext[]
   primaryTabId: string | null
+  openTabs: OpenTabCatalogEntry[]
 }> {
-  if (capsules.length > 0) return resolveAttachedContext(capsules)
-  return resolveDefaultContext(mode)
+  const base = capsules.length > 0 ? await resolveAttachedContext(capsules) : await resolveDefaultContext(mode)
+  const openTabs = mode === 'agent' ? await buildOpenTabCatalog() : []
+  return { ...base, openTabs }
 }
 
 export async function sendChat(): Promise<void> {
@@ -625,7 +654,7 @@ export async function sendChat(): Promise<void> {
     useAppStore.getState().setChatBusy(false, null)
     return
   }
-  const { files, selections, primaryTabId } = await resolveChatContext(live.mode, attached)
+  const { files, selections, primaryTabId, openTabs } = await resolveChatContext(live.mode, attached)
   const result = await window.coterea.ai.start({
     requestId,
     mode: live.mode,
@@ -634,7 +663,8 @@ export async function sendChat(): Promise<void> {
       mode: live.mode,
       messages: live.messages.filter((m) => m.id !== assistantId),
       files,
-      selections
+      selections,
+      openTabs
     })
   })
   if (!result.ok) {
@@ -792,7 +822,14 @@ function handleTool(payload: { requestId: string } & AiToolRequest): void {
       window.coterea.ai.toolResult({
         requestId: payload.requestId,
         callId: payload.callId,
-        result: JSON.stringify(files.map((t) => ({ id: t.id, name: t.title, language: t.language })))
+        result: JSON.stringify(
+          files.map((t) => ({
+            id: t.id,
+            name: t.title,
+            language: t.language,
+            chars: getText(t.id).length
+          }))
+        )
       })
       return
     }
@@ -814,10 +851,31 @@ function handleTool(payload: { requestId: string } & AiToolRequest): void {
         })
         return
       }
+      const full = getText(tab.id)
+      if (payload.name === 'snapshot_tab') {
+        window.coterea.ai.toolResult({
+          requestId: payload.requestId,
+          callId: payload.callId,
+          result: JSON.stringify({ id: tab.id, title: tab.title, language: tab.language, content: full })
+        })
+        return
+      }
+      const from = typeof payload.from === 'number' ? payload.from : 0
+      const to = typeof payload.to === 'number' ? payload.to : undefined
+      const clipped = clipText(full, AI_CONTEXT_FILE_CHARS, from, to)
       window.coterea.ai.toolResult({
         requestId: payload.requestId,
         callId: payload.callId,
-        result: JSON.stringify({ id: tab.id, title: tab.title, language: tab.language, content: getText(tab.id) })
+        result: JSON.stringify({
+          id: tab.id,
+          title: tab.title,
+          language: tab.language,
+          content: clipped.text,
+          from: clipped.from,
+          to: clipped.to,
+          length: clipped.originalLength,
+          truncated: clipped.truncated
+        })
       })
     }
   })()

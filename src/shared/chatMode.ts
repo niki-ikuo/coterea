@@ -4,7 +4,13 @@ import {
   type ChatMode,
   type ProposedEdit
 } from './ai'
+import {
+  formatOpenTabsCatalog,
+  type OpenTabCatalogEntry
+} from './aiContext'
 import type { ContextCapsule } from './chatContext'
+
+export type { OpenTabCatalogEntry }
 
 export type ActiveFileContext = {
   id: string
@@ -89,9 +95,9 @@ export const CHAT_MODES: ChatModeUi[] = [
   {
     id: 'agent',
     label: 'Agent',
-    title: 'このメッセージを Agent モードで送信（添付または開いている全タブを読んで調査・変更を提案）',
+    title: 'このメッセージを Agent モードで送信（添付またはカレントタブを読み、他はツールで調査・変更を提案）',
     placeholder: '文書を調査・説明... (Enterで送信, Shift+Enterで改行)',
-    summary: '添付、なければ開いている全タブを渡し、複数の変更案を出せる'
+    summary: '添付またはカレントを渡し、他タブは一覧と read_tab で読む'
   }
 ]
 
@@ -106,15 +112,15 @@ export function includesActiveFileBody(mode: ChatMode, hasAttachedFiles = true):
 }
 
 /**
- * カプセルが無いときの対象タブ。
- * Ask / Edit → カレントタブのみ。Agent → 開いている全ファイル。
+ * カプセルが無いときの本文対象タブ。
+ * Ask / Edit / Agent ともカレントタブのみ（Agent の他タブは一覧＋ read_tab）。
  */
 export function defaultContextTabIds(input: {
   mode: ChatMode
   openTabIds: readonly string[]
   activeTabId: string | null
 }): string[] {
-  if (input.mode === 'agent') return [...input.openTabIds]
+  void input.mode
   if (input.activeTabId && input.openTabIds.includes(input.activeTabId)) return [input.activeTabId]
   return []
 }
@@ -154,8 +160,8 @@ export function systemPromptFor(mode: ChatMode): string {
   }
   return [
     'あなたは Coterea の Agent です。',
-    'ユーザーメッセージに載っているファイル本文を優先して使ってください（添付、または開いている全タブ）。',
-    '足りないタブがあれば list_open_tabs / read_tab で読んでください。',
+    'ユーザーメッセージの添付／カレント本文と、開いているタブ一覧を優先してください。他タブの全文は最初から載っていません。',
+    '足りない本文は list_open_tabs / read_tab で読んでください。長いファイルは read_tab の from / to（文字オフセット）で必要な範囲だけ読んでください。',
     '複数依頼や長めのタスクは、先に update_todo で成果物単位（目安3〜5、上限8）に分割し、順番に進めます。',
     '各 todo を in_progress → done と更新し、pending / in_progress が残る間は終了しないでください。',
     '変更は propose_edit で提案します。tab_id には対象タブの id を指定してください。可能な限り replace_range で変更箇所だけを渡し、replace_all は避けてください。',
@@ -170,6 +176,8 @@ export function formatCurrentUserMessage(input: {
   prompt: string
   files?: ActiveFileContext[]
   selections?: SelectionContext[]
+  /** Agent 向け。開いているタブの一覧（本文なし） */
+  openTabs?: OpenTabCatalogEntry[]
   /** 単一ファイル互換。files が空のときだけ使う */
   activeFile?: ActiveFileContext | null
   /** 単一選択互換。selections が空のときだけ使う */
@@ -187,20 +195,22 @@ export function formatCurrentUserMessage(input: {
       : input.selection
         ? [input.selection]
         : []
+  const openTabs = input.openTabs ?? []
 
   const parts: string[] = []
   if (includesActiveFileBody(input.mode, files.length > 0)) {
     parts.push(formatAttachedFiles(files, input.mode === 'agent'))
-    if (input.mode === 'agent' && files.length > 0) {
-      parts.push(
-        [
-          '[補足]',
-          '上記のファイル本文はすでに載っています。他に必要なタブがあれば list_open_tabs / read_tab を使ってください。'
-        ].join('\n')
-      )
-    }
-  } else {
+  } else if (input.mode === 'agent' && openTabs.length === 0) {
     parts.push(formatAgentWorkspaceEmpty())
+  }
+  if (input.mode === 'agent' && openTabs.length > 0) {
+    parts.push(formatOpenTabsCatalog(openTabs, new Set(files.map((f) => f.id))))
+    parts.push(
+      [
+        '[補足]',
+        '上記に無いタブの本文が必要なら list_open_tabs / read_tab を使ってください。長い場合は from / to で範囲指定してください。'
+      ].join('\n')
+    )
   }
   for (const selection of selections) {
     const block = formatSelection(input.mode, selection)
@@ -227,7 +237,7 @@ function formatAttachedFiles(files: ActiveFileContext[], includeId: boolean): st
 function formatAgentWorkspaceEmpty(): string {
   return [
     '[作業対象]',
-    '添付はありません。タブがあれば list_open_tabs で確認し、本文は read_tab で読んでください。'
+    '添付も開いているファイルもありません。list_open_tabs で確認し、本文は read_tab（必要なら from / to）で読んでください。'
   ].join('\n')
 }
 
@@ -262,6 +272,7 @@ export function buildChatMessages(input: {
   messages: Pick<ChatMessage, 'role' | 'content' | 'proposal' | 'proposalStatus'>[]
   files?: ActiveFileContext[]
   selections?: SelectionContext[]
+  openTabs?: OpenTabCatalogEntry[]
   activeFile?: ActiveFileContext | null
   selection?: SelectionContext | null
 }): { role: 'user' | 'assistant'; content: string }[] {
@@ -279,6 +290,7 @@ export function buildChatMessages(input: {
       prompt: lastUser.content,
       files: input.files,
       selections: input.selections,
+      openTabs: input.openTabs,
       activeFile: input.activeFile,
       selection: input.selection
     })

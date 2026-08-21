@@ -30,15 +30,11 @@ describe('mode policy', () => {
     expect(includesActiveFileBody('agent', false)).toBe(false)
   })
 
-  it('カプセル無しの既定タブは Ask/Edit=カレント、Agent=全部', () => {
+  it('カプセル無しの既定タブは全モードでカレントのみ', () => {
     const open = ['a', 'b', 'c']
     expect(defaultContextTabIds({ mode: 'ask', openTabIds: open, activeTabId: 'b' })).toEqual(['b'])
     expect(defaultContextTabIds({ mode: 'edit', openTabIds: open, activeTabId: 'b' })).toEqual(['b'])
-    expect(defaultContextTabIds({ mode: 'agent', openTabIds: open, activeTabId: 'b' })).toEqual([
-      'a',
-      'b',
-      'c'
-    ])
+    expect(defaultContextTabIds({ mode: 'agent', openTabIds: open, activeTabId: 'b' })).toEqual(['b'])
     expect(defaultContextTabIds({ mode: 'ask', openTabIds: open, activeTabId: null })).toEqual([])
   })
 
@@ -98,30 +94,50 @@ describe('formatCurrentUserMessage', () => {
     expect(text).toContain('replace_range を優先')
   })
 
-  it('Agent は添付本文を載せ、他タブはツールで読むよう補足する', () => {
+  it('Agent は添付本文を載せ、他タブは一覧とツールで読むよう補足する', () => {
     const text = formatCurrentUserMessage({
       mode: 'agent',
       prompt: '全体を整理',
       files: [file],
+      openTabs: [
+        { id: 'tab-1', title: 'notes.md', language: 'markdown', chars: 12 },
+        { id: 'tab-2', title: 'other.md', language: 'markdown', chars: 99 }
+      ],
       selections: [{ from: 0, to: 2, text: '導入', tabId: 'tab-1', title: 'notes.md', lineFrom: 1, lineTo: 1 }]
     })
     expect(text).toContain('[添付ファイル: notes.md]')
     expect(text).toContain('id: tab-1')
     expect(text).toContain('導入を長く書いた。')
+    expect(text).toContain('[開いているタブ]')
+    expect(text).toContain('other.md')
     expect(text).toContain('read_tab')
     expect(text).toContain('この範囲を優先して検討してください。')
     expect(text).toContain('[ユーザー]\n全体を整理')
   })
 
-  it('Agent で添付が無いときはツール案内だけ', () => {
+  it('Agent で本文が無くてもタブ一覧を載せる', () => {
     const text = formatCurrentUserMessage({
       mode: 'agent',
       prompt: '調べて',
       files: [],
+      openTabs: [{ id: 'tab-2', title: 'other.md', language: 'markdown', chars: 40 }],
+      selections: []
+    })
+    expect(text).toContain('[開いているタブ]')
+    expect(text).toContain('other.md')
+    expect(text).toContain('read_tab')
+    expect(text).not.toContain('[添付ファイル')
+  })
+
+  it('Agent でタブも無いときはツール案内だけ', () => {
+    const text = formatCurrentUserMessage({
+      mode: 'agent',
+      prompt: '調べて',
+      files: [],
+      openTabs: [],
       selections: []
     })
     expect(text).toContain('[作業対象]')
-    expect(text).toContain('添付はありません')
     expect(text).toContain('read_tab')
     expect(text).not.toContain('[添付ファイル')
   })
@@ -170,7 +186,8 @@ describe('systemPromptFor', () => {
     expect(systemPromptFor('edit')).toContain('いまのファイル')
     expect(systemPromptFor('edit')).toContain('文章で報告')
     expect(systemPromptFor('agent')).toContain('read_tab')
-    expect(systemPromptFor('agent')).toContain('開いている全タブ')
+    expect(systemPromptFor('agent')).toContain('from / to')
+    expect(systemPromptFor('agent')).not.toContain('開いている全タブ')
   })
 })
 
