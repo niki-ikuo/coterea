@@ -197,4 +197,16 @@ describe('diffLines', () => {
     expect(before).toBe('hello')
     expect(after).toBe('HELLO')
   })
+
+  it('再計算済みなら current→merged を出す', () => {
+    const { before, after } = previewTexts({
+      mode: 'replace_all',
+      baseText: 'a',
+      text: 'b',
+      rebasedAgainst: 'aX',
+      rebasedText: 'bX'
+    })
+    expect(before).toBe('aX')
+    expect(after).toBe('bX')
+  })
 })

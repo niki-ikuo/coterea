@@ -90,6 +90,8 @@ export const AI_PROVIDERS: AiProviderPreset[] = [
   }
 ]
 
+export type ProposalRebaseKind = 'clean' | 'overlap'
+
 export interface ProposedEdit {
   tabId: string
   tabTitle: string
@@ -100,6 +102,12 @@ export interface ProposedEdit {
   baseText: string
   rangeBase?: string
   note?: string
+  /** 差分再計算時の文書スナップショット（適用確認用） */
+  rebasedAgainst?: string
+  /** 再計算後に適用される全文 */
+  rebasedText?: string
+  /** 再計算の結果。overlap のとき衝突警告 */
+  rebaseKind?: ProposalRebaseKind
 }
 
 export interface ChatMessage {
@@ -303,7 +311,10 @@ function sanitizeProposal(raw: ProposedEdit): ProposedEdit | undefined {
     to: typeof raw.to === 'number' ? raw.to : undefined,
     baseText: typeof raw.baseText === 'string' ? raw.baseText : '',
     rangeBase: typeof raw.rangeBase === 'string' ? raw.rangeBase : undefined,
-    note: typeof raw.note === 'string' ? raw.note : undefined
+    note: typeof raw.note === 'string' ? raw.note : undefined,
+    rebasedAgainst: typeof raw.rebasedAgainst === 'string' ? raw.rebasedAgainst : undefined,
+    rebasedText: typeof raw.rebasedText === 'string' ? raw.rebasedText : undefined,
+    rebaseKind: raw.rebaseKind === 'clean' || raw.rebaseKind === 'overlap' ? raw.rebaseKind : undefined
   }
 }
 

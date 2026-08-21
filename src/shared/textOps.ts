@@ -443,3 +443,66 @@ export function desiredTextAfterProposal(
   const { base, proposed } = proposedSnapshot(current, proposal)
   return mergeSnapshotEdits(base, current, proposed)
 }
+
+export type RebaseKind = 'unchanged' | 'clean' | 'overlap'
+
+export type RebaseResult = {
+  kind: RebaseKind
+  next: string
+  previewBefore: string
+  previewAfter: string
+}
+
+/** スナップショット上で、ユーザー変更と AI 変更が同じ領域を触っているか。 */
+export function textOpsOverlap(userOps: readonly TextOp[], aiOps: readonly TextOp[]): boolean {
+  for (const user of userOps) {
+    for (const ai of aiOps) {
+      if (opsTouchSameBase(user, ai)) return true
+    }
+  }
+  return false
+}
+
+function opsTouchSameBase(a: TextOp, b: TextOp): boolean {
+  const aDeletes = a.deleteCount > 0
+  const bDeletes = b.deleteCount > 0
+  if (aDeletes && bDeletes) {
+    return a.index < b.index + b.deleteCount && b.index < a.index + a.deleteCount
+  }
+  // 挿入は削除範囲の境界（直前・直後）なら独立。内側に入ったときだけ衝突。
+  if (aDeletes && !bDeletes) {
+    return a.index < b.index && b.index < a.index + a.deleteCount
+  }
+  if (!aDeletes && bDeletes) {
+    return b.index < a.index && a.index < b.index + b.deleteCount
+  }
+  return false
+}
+
+/**
+ * 提案スナップショットを今の文書へ載せ直す。
+ * 他者編集と領域が重ならなければ clean、重なれば overlap（警告して確認）。
+ */
+export function rebaseProposal(
+  current: string,
+  proposal: {
+    mode: 'replace_all' | 'replace_range'
+    text: string
+    from?: number
+    to?: number
+    baseText?: string
+  }
+): RebaseResult {
+  const { base, proposed } = proposedSnapshot(current, proposal)
+  const next = mergeSnapshotEdits(base, current, proposed)
+  const preview = { previewBefore: current, previewAfter: next }
+  if (base === current) {
+    return { kind: 'unchanged', next, ...preview }
+  }
+  const userOps = computeTextOps(base, current)
+  const aiOps = computeTextOps(base, proposed)
+  if (textOpsOverlap(userOps, aiOps)) {
+    return { kind: 'overlap', next, ...preview }
+  }
+  return { kind: 'clean', next, ...preview }
+}

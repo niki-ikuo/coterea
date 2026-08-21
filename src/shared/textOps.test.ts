@@ -5,7 +5,9 @@ import {
   computeTextOps,
   desiredTextAfterProposal,
   mapCursorOffset,
-  matchDocumentEol
+  matchDocumentEol,
+  rebaseProposal,
+  textOpsOverlap
 } from './textOps'
 
 describe('computeTextOps', () => {
@@ -161,5 +163,62 @@ describe('desiredTextAfterProposal', () => {
     const cursor = current.indexOf('abcdefg') + 'abcdefg'.length
     const ops = computeApplyOps(current, { mode: 'replace_all', text: proposed, baseText: base })
     expect(mapCursorOffset(cursor, ops)).toBe(next.indexOf('abcdefg') + 'abcdefg'.length)
+  })
+})
+
+describe('textOpsOverlap', () => {
+  it('別領域なら false', () => {
+    const user = computeTextOps('a\nb\nc', 'a\nB\nc')
+    const ai = computeTextOps('a\nb\nc', 'a\nb\nC')
+    expect(textOpsOverlap(user, ai)).toBe(false)
+  })
+
+  it('同じ削除範囲なら true', () => {
+    const user = computeTextOps('hello', 'hallo')
+    const ai = computeTextOps('hello', 'hEllo')
+    expect(textOpsOverlap(user, ai)).toBe(true)
+  })
+})
+
+describe('rebaseProposal', () => {
+  it('文書が同じなら unchanged', () => {
+    const r = rebaseProposal('abc', { mode: 'replace_all', text: 'xyz', baseText: 'abc' })
+    expect(r.kind).toBe('unchanged')
+    expect(r.next).toBe('xyz')
+  })
+
+  it('別行の並行編集は clean で両方残る', () => {
+    const base = 'line1\nline2\nline3\n'
+    const current = 'line1\nUSER\nline3\n'
+    const proposed = 'line1\nline2\nAI\n'
+    const r = rebaseProposal(current, { mode: 'replace_all', text: proposed, baseText: base })
+    expect(r.kind).toBe('clean')
+    expect(r.next).toContain('USER')
+    expect(r.next).toContain('AI')
+    expect(r.previewBefore).toBe(current)
+    expect(r.previewAfter).toBe(r.next)
+  })
+
+  it('同じ行の並行編集は overlap', () => {
+    const base = 'hello world'
+    const current = 'hello USER'
+    const proposed = 'hello AI'
+    const r = rebaseProposal(current, { mode: 'replace_all', text: proposed, baseText: base })
+    expect(r.kind).toBe('overlap')
+    expect(r.next).toContain('USER')
+  })
+
+  it('range で手前に挿入があっても base 基準で載る', () => {
+    const base = 'hello world'
+    const current = 'XXXhello world'
+    const r = rebaseProposal(current, {
+      mode: 'replace_range',
+      text: 'HELLO',
+      from: 0,
+      to: 5,
+      baseText: base
+    })
+    expect(r.kind).toBe('clean')
+    expect(r.next).toBe('XXXHELLO world')
   })
 })

@@ -84,7 +84,12 @@ export function previewTexts(proposal: {
   from?: number
   to?: number
   rangeBase?: string
+  rebasedAgainst?: string
+  rebasedText?: string
 }): { before: string; after: string } {
+  if (proposal.rebasedAgainst != null && proposal.rebasedText != null) {
+    return { before: proposal.rebasedAgainst, after: proposal.rebasedText }
+  }
   if (proposal.mode === 'replace_range') {
     const from = proposal.from ?? 0
     const to = proposal.to ?? 0

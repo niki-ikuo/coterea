@@ -936,8 +936,10 @@ function ProposalCard({ msg, proposal, compact = false }: { msg: ChatMessage; pr
   const { before, after } = previewTexts(proposal)
   const lines = diffLines(before, after)
   const status = msg.proposalStatus ?? 'pending'
+  const rebased = proposal.rebasedAgainst != null && proposal.rebasedText != null
   const meta =
     (proposal.mode === 'replace_all' ? 'ファイル全体' : '範囲') +
+    (rebased ? ' · 再計算' : '') +
     (status === 'applied' ? ' · 適用済み' : status === 'rejected' ? ' · 拒否' : status === 'conflict' ? ' · 衝突' : '')
   return (
     <div className={`chat-code-block actions${status === 'pending' || status === 'conflict' ? '' : ' is-settled'}${compact ? ' is-compact' : ''}`}>
@@ -969,9 +971,13 @@ function ProposalCard({ msg, proposal, compact = false }: { msg: ChatMessage; pr
       )}
       {status === 'conflict' && (
         <div className="diff-actions">
-          <p className="warn small">プレビュー後に文書が変わっています。上書きするかやり直してください。</p>
+          <p className="warn small">
+            {proposal.rebaseKind === 'overlap'
+              ? '同じ箇所が編集されています。再計算した差分を確認してから適用するか、拒否してください。'
+              : 'プレビュー後に文書が変わっています。差分を確認するか、拒否してください。'}
+          </p>
           <button type="button" className="primary" onClick={() => void applyProposal(msg.id, true)}>
-            上書き適用
+            この内容で適用
           </button>
           <button type="button" onClick={() => void rejectProposal(msg.id)}>
             拒否

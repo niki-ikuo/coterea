@@ -1,6 +1,5 @@
 import {
   cannotDeleteLastThread,
-  classifyApplyCollision,
   emptyThread,
   historyChatThreads,
   isThreadOpen,
@@ -46,7 +45,7 @@ import {
 import { isCollabActive, markDirty, persistTab } from './collab'
 import { getTabDoc } from './docs'
 import { preloadEditor } from './editorReady'
-import { desiredTextAfterProposal } from '../../../shared/textOps'
+import { decideProposalApply } from '../../../shared/proposalApply'
 import { getActiveEditor } from './editorHandle'
 import { openSettingsTab, setCollabPaneVisible } from './actions'
 import { reorderOpenById } from '../../../shared/tabOrder'
@@ -897,7 +896,32 @@ export function attachAiListeners(): () => void {
   }
 }
 
-export async function applyProposal(messageId: string, force = false): Promise<void> {
+function commitProposalApply(
+  messageId: string,
+  tabId: string,
+  tabPath: string | undefined,
+  nextText: string,
+  applyDocumentText: (id: string, text: string) => void
+): Promise<void> {
+  applyDocumentText(tabId, nextText)
+  markDirty(tabId)
+  const persist = shouldPersistAfterProposalApply(isCollabActive(), tabPath)
+    ? persistTab(tabId)
+    : Promise.resolve()
+  patchActiveThread((t) => ({
+    ...t,
+    messages: t.messages.map((m) => (m.id === messageId ? { ...m, proposalStatus: 'applied' } : m))
+  }))
+  persistSoon()
+  return persist
+}
+
+/**
+ * 提案を文書へ適用する。
+ * プレビュー後に文書が変わっていれば差分を再計算して見せ、重なりがあれば確認後に適用する。
+ * @param confirmOverlap overlap 衝突の確認後適用
+ */
+export async function applyProposal(messageId: string, confirmOverlap = false): Promise<void> {
   const thread = activeThread()
   const msg = thread?.messages.find((m) => m.id === messageId)
   const proposal = msg?.proposal
@@ -914,22 +938,18 @@ export async function applyProposal(messageId: string, force = false): Promise<v
     return
   }
   const current = getText(proposal.tabId)
-  const collision = classifyApplyCollision({ current, proposal })
-  if (!force && collision !== 'ok') {
-    patchActiveThread((t) => ({
-      ...t,
-      messages: t.messages.map((m) => (m.id === messageId ? { ...m, proposalStatus: 'conflict' } : m))
-    }))
+  const decision = decideProposalApply({ current, proposal, confirmOverlap })
+  if (decision.action === 'apply') {
+    await commitProposalApply(messageId, proposal.tabId, tab.path, decision.next, applyDocumentText)
     return
-  }
-  applyDocumentText(proposal.tabId, desiredTextAfterProposal(current, proposal))
-  markDirty(proposal.tabId)
-  if (shouldPersistAfterProposalApply(isCollabActive(), tab.path)) {
-    await persistTab(proposal.tabId)
   }
   patchActiveThread((t) => ({
     ...t,
-    messages: t.messages.map((m) => (m.id === messageId ? { ...m, proposalStatus: 'applied' } : m))
+    messages: t.messages.map((m) =>
+      m.id === messageId
+        ? { ...m, proposal: decision.proposal, proposalStatus: decision.status }
+        : m
+    )
   }))
   persistSoon()
 }
@@ -942,12 +962,15 @@ export async function rejectProposal(messageId: string): Promise<void> {
   persistSoon()
 }
 
-export async function applyAllPending(force = false): Promise<void> {
+export async function applyAllPending(confirmOverlap = false): Promise<void> {
   const thread = activeThread()
   if (!thread) return
   for (const msg of thread.messages) {
-    if (msg.proposal && (msg.proposalStatus === 'pending' || (force && msg.proposalStatus === 'conflict'))) {
-      await applyProposal(msg.id, force)
+    if (
+      msg.proposal &&
+      (msg.proposalStatus === 'pending' || (confirmOverlap && msg.proposalStatus === 'conflict'))
+    ) {
+      await applyProposal(msg.id, confirmOverlap)
     }
   }
 }
