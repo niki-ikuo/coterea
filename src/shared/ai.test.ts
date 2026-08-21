@@ -135,6 +135,24 @@ describe('collision', () => {
       })
     ).toBe('stale')
   })
+
+  it('範囲が文書外なら range-mismatch', () => {
+    expect(
+      classifyApplyCollision({
+        current: 'hi',
+        proposal: {
+          tabId: 't',
+          tabTitle: 'a.md',
+          mode: 'replace_range',
+          text: 'x',
+          from: 0,
+          to: 9,
+          baseText: 'hi',
+          rangeBase: 'hi'
+        }
+      })
+    ).toBe('range-mismatch')
+  })
 })
 
 describe('aiIsConfigured', () => {

@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { earlierPeer, electFileSaver, fileSessionSyncKey, idsOverlap, messageKeys, offerKeys, shouldApplyCollabSnapshot } from './fileSession'
+import {
+  earlierPeer,
+  electFileSaver,
+  fileSessionSyncKey,
+  idsOverlap,
+  messageKeys,
+  offerKeys,
+  shouldApplyCollabSnapshot,
+  collabSyncHint
+} from './fileSession'
 
 describe('idsOverlap', () => {
   it('重なる識別子があれば同一実体', () => {
@@ -73,5 +82,48 @@ describe('collab snapshot / sync key', () => {
     applied.add('d1')
     expect(shouldApplyCollabSnapshot(applied, 'd1')).toBe(false)
     expect(shouldApplyCollabSnapshot(applied, 'd2')).toBe(true)
+  })
+})
+
+describe('collabSyncHint', () => {
+  it('共有中ならヒントなし', () => {
+    expect(
+      collabSyncHint({
+        connected: true,
+        sharedTitles: ['a.md'],
+        localTitles: ['a.md'],
+        remoteTitles: ['a.md']
+      }).identityHint
+    ).toBeNull()
+  })
+
+  it('接続だけだと未同期の理由を出す', () => {
+    const bothLocal = collabSyncHint({
+      connected: true,
+      sharedTitles: [],
+      localTitles: ['notes.md'],
+      remoteTitles: ['notes.md']
+    })
+    expect(bothLocal.identityHint).toMatch(/同一実体ではありません/)
+    expect(bothLocal.remoteFileTitles).toEqual(['notes.md'])
+
+    const empty = collabSyncHint({
+      connected: true,
+      sharedTitles: [],
+      localTitles: [],
+      remoteTitles: []
+    })
+    expect(empty.identityHint).toMatch(/無題バッファ/)
+  })
+
+  it('未接続ならヒントなし', () => {
+    expect(
+      collabSyncHint({
+        connected: false,
+        sharedTitles: [],
+        localTitles: ['a.md'],
+        remoteTitles: ['a.md']
+      }).identityHint
+    ).toBeNull()
   })
 })

@@ -148,7 +148,8 @@ export function systemPromptFor(mode: ChatMode): string {
       'list_open_tabs や read_tab は使いません。ファイル本文はユーザーメッセージにあります。',
       '自分でファイルへ書き込んではいけません。適用はユーザーが行います。',
       '変更は可能な限り replace_range で最小範囲だけ置換してください。ファイル全体の replace_all は本当に全体が必要なときだけにしてください。',
-      '短い note で何を変えたか説明してください。'
+      'propose_edit の note には、何をどう変えるかを短く書いてください。',
+      '提案のあと、ユーザーの言語で「何をしたか／何を変える提案か」を必ず短く文章で報告してください。差分カードだけ出して黙って終わらないでください。'
     ].join('')
   }
   return [
@@ -317,6 +318,15 @@ export function decideAgentTurn(input: {
 
 export function editUnsupportedToolMessage(): string {
   return 'このモデルは編集ツールに対応していないようです。Ask で確認するか、ツール対応のモデルに切り替えてください。'
+}
+
+/** Edit: propose_edit 成功後に、変更内容の文章報告を促す。 */
+export function formatEditReportNudge(): string {
+  return [
+    '提案はユーザーに提示済みです。文書はまだ変わっていません（適用はユーザーが行います）。',
+    'いま何をどう変える提案をしたか、ユーザーの言語で短く報告してください。',
+    'ツールは使わず、文章だけ返してください。'
+  ].join('')
 }
 
 /**

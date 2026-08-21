@@ -1,5 +1,6 @@
 import {
   cannotDeleteLastThread,
+  classifyApplyCollision,
   emptyThread,
   historyChatThreads,
   isThreadOpen,
@@ -838,7 +839,7 @@ export function attachAiListeners(): () => void {
   }
 }
 
-export async function applyProposal(messageId: string, _force = false): Promise<void> {
+export async function applyProposal(messageId: string, force = false): Promise<void> {
   const thread = activeThread()
   const msg = thread?.messages.find((m) => m.id === messageId)
   const proposal = msg?.proposal
@@ -855,6 +856,14 @@ export async function applyProposal(messageId: string, _force = false): Promise<
     return
   }
   const current = getText(proposal.tabId)
+  const collision = classifyApplyCollision({ current, proposal })
+  if (!force && collision !== 'ok') {
+    patchActiveThread((t) => ({
+      ...t,
+      messages: t.messages.map((m) => (m.id === messageId ? { ...m, proposalStatus: 'conflict' } : m))
+    }))
+    return
+  }
   applyDocumentText(proposal.tabId, desiredTextAfterProposal(current, proposal))
   markDirty(proposal.tabId)
   if (shouldPersistAfterProposalApply(isCollabActive(), tab.path)) {

@@ -8,6 +8,7 @@ import {
   electFileSaver as pickFileSaver,
   fileSessionSyncKey,
   shouldApplyCollabSnapshot,
+  collabSyncHint,
   type FileOffer
 } from '../../../shared/fileSession'
 import { isVirtualTab, useAppStore, type TabInfo } from '../store'
@@ -420,38 +421,6 @@ function exchangeDoc(tab: TabInfo, keys: string[], isOriginator: boolean): void 
   window.coterea.collab.send({ type: 'yjs-sync-request', docId: tab.id })
 }
 
-function identityHint(
-  connected: boolean,
-  shared: string[],
-  localTitles: string[],
-  remoteTitles: string[]
-): { identityHint: string | null; remoteFileTitles: string[] } {
-  const remotes = [...new Set(remoteTitles)]
-  if (!connected) return { identityHint: null, remoteFileTitles: remotes }
-  if (shared.length > 0) return { identityHint: null, remoteFileTitles: remotes }
-  if (localTitles.length === 0 && remotes.length === 0) {
-    return { identityHint: null, remoteFileTitles: remotes }
-  }
-  if (localTitles.length > 0 && remotes.length === 0) {
-    return {
-      identityHint:
-        '相手は共有できるファイルを開いていません。無題バッファは同期しません。同じ実体のファイルを双方で開いてください。',
-      remoteFileTitles: remotes
-    }
-  }
-  if (localTitles.length === 0 && remotes.length > 0) {
-    return {
-      identityHint: `相手は「${remotes.join('、')}」を開いていますが、こちらに同じ実体がありません。`,
-      remoteFileTitles: remotes
-    }
-  }
-  return {
-    identityHint:
-      '接続はできていますが、開いているファイルは同一実体ではありません。別PCのローカルコピー（同名でも C:\\… 同士など）は同期しません。ネットワーク共有上の同じファイルを双方で開いてください。',
-    remoteFileTitles: remotes
-  }
-}
-
 function reconcileFileSessions(): void {
   const { collab, tabs } = useAppStore.getState()
   const connected = isCollabActive()
@@ -503,7 +472,12 @@ function reconcileFileSessions(): void {
     useAppStore.getState().patchCollab({
       sharedKeys: [...new Set(shared)],
       fileSavers,
-      ...identityHint(connected, shared, localTitles, remoteTitles)
+      ...collabSyncHint({
+        connected,
+        sharedTitles: shared,
+        localTitles,
+        remoteTitles
+      })
     })
   })
 }

@@ -5,6 +5,7 @@ import {
   decideAgentTurn,
   defaultContextTabIds,
   formatCurrentUserMessage,
+  formatEditReportNudge,
   includesActiveFileBody,
   maxStepsForMode,
   resolveOpenTabId,
@@ -167,8 +168,16 @@ describe('systemPromptFor', () => {
     expect(systemPromptFor('ask')).not.toContain('propose_edit')
     expect(systemPromptFor('edit')).toContain('tab_id は省略')
     expect(systemPromptFor('edit')).toContain('いまのファイル')
+    expect(systemPromptFor('edit')).toContain('文章で報告')
     expect(systemPromptFor('agent')).toContain('read_tab')
     expect(systemPromptFor('agent')).toContain('開いている全タブ')
+  })
+})
+
+describe('formatEditReportNudge', () => {
+  it('提案後の報告を促す', () => {
+    expect(formatEditReportNudge()).toMatch(/短く報告/)
+    expect(formatEditReportNudge()).toMatch(/ツールは使わず/)
   })
 })
 

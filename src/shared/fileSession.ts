@@ -51,3 +51,40 @@ export function messageKeys(msg: Record<string, unknown>): string[] {
   if (typeof msg.key === 'string') return [msg.key]
   return []
 }
+
+/** 接続できているのに同一実体が重ならないときの説明。共有中なら null。 */
+export function collabSyncHint(input: {
+  connected: boolean
+  sharedTitles: string[]
+  localTitles: string[]
+  remoteTitles: string[]
+}): { identityHint: string | null; remoteFileTitles: string[] } {
+  const remotes = [...new Set(input.remoteTitles)]
+  if (!input.connected) return { identityHint: null, remoteFileTitles: remotes }
+  if (input.sharedTitles.length > 0) return { identityHint: null, remoteFileTitles: remotes }
+  if (input.localTitles.length === 0 && remotes.length === 0) {
+    return {
+      identityHint:
+        '接続はできていますが、同期できるファイルがありません。無題バッファは同期しません。ネットワーク共有上の同じファイルを双方で開いてください。',
+      remoteFileTitles: remotes
+    }
+  }
+  if (input.localTitles.length > 0 && remotes.length === 0) {
+    return {
+      identityHint:
+        '相手は共有できるファイルを開いていません。無題バッファは同期しません。同じ実体のファイルを双方で開いてください。',
+      remoteFileTitles: remotes
+    }
+  }
+  if (input.localTitles.length === 0 && remotes.length > 0) {
+    return {
+      identityHint: `相手は「${remotes.join('、')}」を開いていますが、こちらに同じ実体がありません。ネットワーク共有上の同じファイルを開いてください。`,
+      remoteFileTitles: remotes
+    }
+  }
+  return {
+    identityHint:
+      '接続はできていますが、開いているファイルは同一実体ではありません。別PCのローカルコピー（同名でも C:\\… 同士など）は同期しません。ネットワーク共有上の同じファイルを双方で開いてください。',
+    remoteFileTitles: remotes
+  }
+}

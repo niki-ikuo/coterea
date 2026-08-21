@@ -61,19 +61,34 @@ function CollabPicker(): React.JSX.Element {
   const wrapRef = useRef<HTMLDivElement>(null)
   const connected = collab.status === 'hosting' || collab.status === 'joined'
   const n = connected ? Math.max(collab.peers.length, 1) : 0
+  const notSyncing = connected && collab.sharedKeys.length === 0
   const failed =
     collab.status === 'error' ||
     (Boolean(collab.error) && collab.status !== 'hosting' && collab.status !== 'joined' && collab.status !== 'connecting')
+  const discovering = !connected && collab.status !== 'connecting' && !failed && collab.udpPeerCount > 0
+  const discoverStuck =
+    discovering &&
+    Boolean(collab.netHint) &&
+    !collab.netHint!.includes('待っています') &&
+    !collab.netHint!.includes('準備しています')
   const label = connected
-    ? `接続 ${n}人`
+    ? notSyncing
+      ? `接続 ${n}人 · 未同期`
+      : `接続 ${n}人`
     : collab.status === 'connecting'
       ? '接続中'
       : failed
         ? '接続失敗'
-        : collab.udpPeerCount > 0
-          ? '検出中'
+        : discovering
+          ? discoverStuck || collab.error
+            ? '未接続'
+            : '検出中'
           : 'なし'
-  const showHint = Boolean(collab.netHint) && (failed || collab.status === 'connecting')
+  const hint = notSyncing
+    ? (collab.identityHint ?? '接続中ですが、同じ実体のファイルを開くまで同期しません。')
+    : collab.netHint
+  const showHint =
+    Boolean(hint) && (notSyncing || failed || collab.status === 'connecting' || discovering)
 
   useEffect(() => {
     const onDown = (e: MouseEvent): void => {
@@ -94,17 +109,22 @@ function CollabPicker(): React.JSX.Element {
     <div className="collab-picker" ref={wrapRef}>
       <button
         type="button"
-        className={`status-btn${failed ? ' is-error' : ''}`}
+        className={`status-btn${failed || (discovering && (discoverStuck || collab.error)) ? ' is-error' : ''}${
+          notSyncing || (discovering && !discoverStuck && !collab.error) ? ' is-warn' : ''
+        }`}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title={collab.netHint ?? '共同編集'}
+        title={hint ?? '共同編集'}
         onClick={() => setOpen((v) => !v)}
       >
         共同編集: {label}
       </button>
-      {showHint && collab.netHint ? (
-        <span className="status-hint" title={collab.netHint}>
-          {collab.netHint}
+      {showHint && hint ? (
+        <span
+          className={`status-hint${notSyncing || (discovering && !failed) ? ' is-warn' : ''}`}
+          title={hint}
+        >
+          {hint}
         </span>
       ) : null}
       {open && (

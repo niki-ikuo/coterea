@@ -1,17 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
-import { useAppStore } from '../store'
+import { isFileTab, useAppStore } from '../store'
 import { openSettingsTab } from '../lib/actions'
 import { joinManual, leaveManualSession, startManualHost } from '../lib/collab'
 import { COLLAB_LAN_NOTICE_SHORT } from '../../../shared/collabNotice'
+import { fileIdsOf } from '../../../shared/fileSession'
 
 export function CollabFold(): React.JSX.Element {
   const displayName = useAppStore((s) => s.displayName)
   const collab = useAppStore((s) => s.collab)
+  const tabs = useAppStore((s) => s.tabs)
   const connected = collab.status === 'hosting' || collab.status === 'joined'
   const participants = connected
     ? collab.peers
     : collab.peers.filter((peer) => peer.id === collab.localPeerId)
   const count = Math.max(participants.length, 1)
+  const localTitles = tabs
+    .filter((tab) => isFileTab(tab) && fileIdsOf(tab).length > 0)
+    .map((tab) => tab.title)
+  const notSyncing = connected && collab.sharedKeys.length === 0
   const [endpoint, setEndpoint] = useState('')
   const [joining, setJoining] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
@@ -58,11 +64,17 @@ export function CollabFold(): React.JSX.Element {
         <p className="status-line">
           {collab.status === 'solo' &&
             (collab.udpPeerCount > 0
-              ? 'LAN上の相手を検出。接続を準備しています'
+              ? collab.netHint && !collab.netHint.includes('待っています')
+                ? '相手を検出したが未接続'
+                : 'LAN上の相手を検出。接続を準備しています'
               : '一人で編集中（共同編集サーバーは起動していません）')}
           {collab.status === 'connecting' && '接続中…'}
-          {collab.status === 'hosting' && `ハブ（先にいた人）· ${count}人`}
-          {collab.status === 'joined' && `参加中 · ${count}人`}
+          {collab.status === 'hosting' &&
+            (notSyncing
+              ? `ハブ（先にいた人）· ${count}人 · ファイル未同期`
+              : `ハブ（先にいた人）· ${count}人`)}
+          {collab.status === 'joined' &&
+            (notSyncing ? `参加中 · ${count}人 · ファイル未同期` : `参加中 · ${count}人`)}
           {collab.status === 'error' && (collab.error ?? 'エラー')}
         </p>
         {collab.netHint && <p className={collab.error ? 'error' : 'warn'}>{collab.netHint}</p>}
@@ -116,9 +128,45 @@ export function CollabFold(): React.JSX.Element {
         )}
       </section>
 
-      <section className="pane-card">
-        <div className="label">共有中のファイル</div>
-        {collab.sharedKeys.length === 0 ? (
+      <section className={`pane-card${notSyncing ? ' is-sync-warn' : ''}`}>
+        <div className="label">{notSyncing ? 'ファイル同期（未共有）' : '共有中のファイル'}</div>
+        {notSyncing ? (
+          <>
+            <p className="warn">
+              {collab.identityHint ??
+                '接続できていても、同じ実体のファイルを双方が開くまで編集は同期しません。'}
+            </p>
+            <div className="sync-sides">
+              <div>
+                <div className="label">こちら</div>
+                {localTitles.length === 0 ? (
+                  <p className="muted small">保存済みファイルなし（無題は同期しません）</p>
+                ) : (
+                  <ul className="peer-list compact">
+                    {localTitles.map((title) => (
+                      <li key={`local-${title}`}>{title}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div>
+                <div className="label">相手</div>
+                {collab.remoteFileTitles.length === 0 ? (
+                  <p className="muted small">共有できるファイルなし</p>
+                ) : (
+                  <ul className="peer-list compact">
+                    {collab.remoteFileTitles.map((title) => (
+                      <li key={`remote-${title}`}>{title}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+            <p className="muted small">
+              同名のローカルコピー同士では同期しません。SMB などネットワーク共有上の同じファイルを双方で開いてください。
+            </p>
+          </>
+        ) : collab.sharedKeys.length === 0 ? (
           <p className="muted">
             {collab.identityHint ??
               '同じ実体のファイルを開くと、そのファイルだけ同期します。パス表記が違っても同一ファイルなら共有します。'}
@@ -135,9 +183,6 @@ export function CollabFold(): React.JSX.Element {
               </li>
             ))}
           </ul>
-        )}
-        {collab.identityHint && collab.sharedKeys.length === 0 && collab.remoteFileTitles.length > 0 && (
-          <p className="muted small">相手が開いている名前: {collab.remoteFileTitles.join('、')}</p>
         )}
       </section>
 

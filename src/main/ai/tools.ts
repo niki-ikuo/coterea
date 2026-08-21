@@ -32,7 +32,7 @@ const PROPOSE_EDIT = {
   function: {
     name: 'propose_edit',
     description:
-      'Propose a document change. The user must approve it. Omit tab_id to target the attached primary file. Use replace_all for the whole file or replace_range for [from, to) character offsets.',
+      'Propose a document change. The user must approve it. Omit tab_id to target the attached primary file. Use replace_all for the whole file or replace_range for [from, to) character offsets. Always include note describing the change.',
     parameters: {
       type: 'object',
       properties: {
@@ -41,9 +41,12 @@ const PROPOSE_EDIT = {
         text: { type: 'string' },
         from: { type: 'integer' },
         to: { type: 'integer' },
-        note: { type: 'string' }
+        note: {
+          type: 'string',
+          description: 'Short description of what this change does, in the user language'
+        }
       },
-      required: ['mode', 'text'],
+      required: ['mode', 'text', 'note'],
       additionalProperties: false
     }
   }

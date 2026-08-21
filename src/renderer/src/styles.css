@@ -1755,6 +1755,10 @@ button:disabled {
   color: var(--danger);
 }
 
+.status-btn.is-warn {
+  color: var(--warn, #b45309);
+}
+
 .collab-picker {
   position: relative;
   display: flex;
@@ -1769,6 +1773,10 @@ button:disabled {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--danger);
+}
+
+.status-hint.is-warn {
+  color: var(--warn, #b45309);
 }
 
 .collab-pop {
@@ -2124,6 +2132,26 @@ label {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.pane-card.is-sync-warn {
+  border-color: color-mix(in srgb, var(--warn, #b45309) 45%, var(--line));
+  background: color-mix(in srgb, var(--warn, #b45309) 8%, var(--card));
+}
+
+.sync-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.peer-list.compact {
+  margin: 0;
+}
+
+.peer-list.compact li {
+  padding-block: 2px;
 }
 
 .chat-tabbar {

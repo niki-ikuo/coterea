@@ -12,6 +12,7 @@ import type { AiStreamEvent, AiToolRequest } from '../../shared/api'
 import {
   decideAgentTurn,
   editUnsupportedToolMessage,
+  formatEditReportNudge,
   maxStepsForMode,
   systemPromptFor,
   toolsForMode
@@ -157,11 +158,12 @@ async function runAsk(wc: WebContents, ctx: ChatRun): Promise<void> {
   emit(wc, ctx.requestId, { type: 'done' })
 }
 
-/** 1回の応答で propose_edit を1つ。失敗したらユーザーへ理由を返す。 */
+/** 1回の応答で propose_edit を1つ。成功後に何をしたかを文章で報告する。失敗したらユーザーへ理由を返す。 */
 async function runEdit(wc: WebContents, ctx: ChatRun): Promise<void> {
   if (stopped(wc, ctx)) return
+  const messages = llmMessages(ctx)
   const turn = await complete(wc, ctx, {
-    messages: llmMessages(ctx),
+    messages,
     tools: schemasForTools(toolsForMode('edit')),
     toolChoice: { type: 'function', function: { name: 'propose_edit' } }
   })
@@ -179,6 +181,16 @@ async function runEdit(wc: WebContents, ctx: ChatRun): Promise<void> {
     emit(wc, ctx.requestId, { type: 'error', message: toolErrorMessage(result) })
     return
   }
+
+  messages.push({
+    role: 'assistant',
+    content: turn.content || null,
+    tool_calls: turn.toolCalls
+  })
+  messages.push({ role: 'tool', content: result, tool_call_id: call.id })
+  messages.push({ role: 'user', content: formatEditReportNudge() })
+  await complete(wc, ctx, { messages })
+  if (stopped(wc, ctx)) return
   emit(wc, ctx.requestId, { type: 'done' })
 }
 

@@ -47,7 +47,7 @@ describe('decideHubTick', () => {
     ).toEqual({ action: 'become-host' })
   })
 
-  it('新しい側はハブにならない', () => {
+  it('新しい側はハブにならず相手を待つ', () => {
     expect(
       decideHubTick({
         enabled: true,
@@ -58,7 +58,45 @@ describe('decideHubTick', () => {
         startedAt: 2,
         holdHost: false,
         clientCount: 0,
-        others: [peer('old', 1)]
+        others: [peer('old', 1)],
+        now: 1000,
+        awaitingHost: null
+      })
+    ).toEqual({ action: 'await-host', peerId: 'old' })
+  })
+
+  it('最古参がハブにならないまま待ちすぎたら自分がハブになる', () => {
+    expect(
+      decideHubTick({
+        enabled: true,
+        leaving: false,
+        connecting: false,
+        role: 'solo',
+        localPeerId: 'new',
+        startedAt: 2,
+        holdHost: false,
+        clientCount: 0,
+        others: [peer('old', 1)],
+        now: 10_000,
+        awaitingHost: { peerId: 'old', since: 1000 }
+      })
+    ).toEqual({ action: 'become-host', ignorePeerId: 'old' })
+  })
+
+  it('除外中の相手は選挙に入れない', () => {
+    expect(
+      decideHubTick({
+        enabled: true,
+        leaving: false,
+        connecting: false,
+        role: 'solo',
+        localPeerId: 'new',
+        startedAt: 2,
+        holdHost: false,
+        clientCount: 0,
+        others: [peer('old', 1)],
+        ignoredUntil: new Map([['old', 99_000]]),
+        now: 50_000
       })
     ).toEqual({ action: 'idle' })
   })

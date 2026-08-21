@@ -4,7 +4,7 @@ import { networkInterfaces } from 'os'
 import { BrowserWindow } from 'electron'
 import { FrameReader, encodeFrame, type ControlMessage } from './frame'
 import { LanDiscovery, type Presence } from './discovery'
-import { decideHubTick, failedHostKey } from './hubTick'
+import { decideHubTick, failedHostKey, HOST_ELECTION_WAIT_MS, STALE_SOLO_IGNORE_MS } from './hubTick'
 import { PEER_COLORS, type PeerInfo } from '../../shared/types'
 
 type Role = 'solo' | 'host' | 'guest'
@@ -67,6 +67,8 @@ export class CollabHub {
   private holdHost = false
   private filePresence = new Map<string, { docId: string | null; docTitle: string | null }>()
   private failedHosts = new Map<string, number>()
+  private ignoredSoloPeers = new Map<string, number>()
+  private awaitingHost: { peerId: string; since: number } | null = null
   private lastHost: { peerId: string; tcpPort: number; hostAddress: string } | null = null
 
   constructor(discovery: LanDiscovery = new LanDiscovery(), startedAt = Date.now()) {
@@ -151,6 +153,7 @@ export class CollabHub {
     this.connectError = null
     this.netHint = null
     this.stuckSince = null
+    this.awaitingHost = null
     await this.tearDownTcp()
     this.publishPresence()
     if (was === 'host' || was === 'guest') {
@@ -216,6 +219,8 @@ export class CollabHub {
   }
 
   private async tick(): Promise<void> {
+    const now = Date.now()
+    this.pruneIgnoredSoloPeers(now)
     const others = this.discovery.others()
     const viable = this.viableOthers(others)
     const decision = decideHubTick({
@@ -227,30 +232,71 @@ export class CollabHub {
       startedAt: this.startedAt,
       holdHost: this.holdHost,
       clientCount: this.clients.size,
-      others: viable
+      others: viable,
+      ignoredUntil: this.ignoredSoloPeers,
+      awaitingHost: this.awaitingHost,
+      now
     })
     if (decision.action === 'demote') {
+      this.awaitingHost = null
       await this.demoteToSolo()
       return
     }
     if (this.role === 'host') {
+      this.awaitingHost = null
       this.updateStuckHint(viable.length, this.clients.size)
       return
     }
     if (this.role === 'guest') {
+      this.awaitingHost = null
       this.updateStuckHint(viable.length, this.hostSocket ? 1 : 0)
       return
     }
     this.clearSoloErrorIfAlone(viable.length)
     if (decision.action === 'join') {
+      this.awaitingHost = null
       await this.connectAsGuest(decision.host as Presence)
       return
     }
     if (decision.action === 'become-host') {
+      if (decision.ignorePeerId) {
+        this.ignoredSoloPeers.set(decision.ignorePeerId, now + STALE_SOLO_IGNORE_MS)
+      }
+      this.awaitingHost = null
       await this.becomeHost()
       return
     }
+    if (decision.action === 'await-host') {
+      if (decision.ignorePeerId) {
+        this.ignoredSoloPeers.set(decision.ignorePeerId, now + STALE_SOLO_IGNORE_MS)
+      }
+      if (this.awaitingHost?.peerId !== decision.peerId) {
+        this.awaitingHost = { peerId: decision.peerId, since: now }
+      }
+      const waited = now - (this.awaitingHost?.since ?? now)
+      const nextHint =
+        waited >= Math.min(2500, HOST_ELECTION_WAIT_MS)
+          ? 'LAN上の相手を検出していますが、相手がハブになっていません。もう少し待つか、手動で「ハブとして待つ」を試してください。'
+          : 'LAN上の相手を検出しました。相手がハブになるのを待っています…'
+      if (this.netHint !== nextHint) {
+        this.netHint = nextHint
+      }
+      this.emitState()
+      this.updateStuckHint(viable.length, 0)
+      return
+    }
+    this.awaitingHost = null
     this.updateStuckHint(viable.length, 0)
+  }
+
+  private pruneIgnoredSoloPeers(now: number): void {
+    for (const [id, until] of this.ignoredSoloPeers) {
+      if (until <= now) this.ignoredSoloPeers.delete(id)
+    }
+    const live = new Set(this.discovery.others().map((peer) => peer.peerId))
+    for (const id of this.ignoredSoloPeers.keys()) {
+      if (!live.has(id)) this.ignoredSoloPeers.delete(id)
+    }
   }
 
   private async becomeHost(): Promise<void> {
