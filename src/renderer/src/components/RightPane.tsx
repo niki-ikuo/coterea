@@ -695,7 +695,6 @@ function UserBubble({ msg }: { msg: ChatMessage }): React.JSX.Element {
     <div className="chat-message user">
       <div className="chat-role">
         <span>あなた</span>
-        {modeLabel(msg.mode) ? <span className={`chat-message-mode ${msg.mode}`}>{modeLabel(msg.mode)}</span> : null}
       </div>
       <div className="chat-content">
         {msg.parts && msg.parts.some((p) => p.type === 'capsule') ? (

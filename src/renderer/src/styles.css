@@ -2260,7 +2260,7 @@ label {
 }
 
 .chat-messages {
-  padding: 0 16px 0 10px;
+  padding: 0.5em 16px 0 10px;
   overflow-anchor: none;
 }
 
@@ -2397,6 +2397,7 @@ label {
   font-weight: 600;
   color: var(--muted);
   margin-bottom: 4px;
+  padding-left: 6px;
 }
 
 .chat-message-mode {
